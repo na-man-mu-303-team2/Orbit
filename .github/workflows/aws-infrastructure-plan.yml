@@ -63,6 +63,7 @@ jobs:
       - name: Run static IaC validators
         run: |
           set -euo pipefail
+          node --test infra/scripts/assert-cfn-change-set-safe.test.mjs
           templates=("$TEMPLATE_FILE")
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
             # The retained bootstrap stack is outside this additive cutover workflow.

@@ -857,3 +857,15 @@
 - Rationale: 기존 서비스와 데이터 경로를 rollback 대상으로 보존하면서 API traffic, Worker ownership, Redis, private storage를 서로 다른 단계로 검증할 수 있다. 운영 bucket의 14일 raw/7일 evidence lifecycle 계약을 그대로 사용해 보존 기간 누락을 막고, 소유권이 다른 stack에서 같은 bucket을 중복 생성하거나 암묵적으로 import하는 위험을 피한다. CloudFormation replacement/delete 방지 검사와 수동 승인 경계가 기존 stateful resource의 우발적 손실을 차단한다.
 - Affected files: `apps/api/src/jobs/async-job-admission.ts`, Deck·slide question guide·realtime·file service와 관련 tests, `apps/worker/src/storage.ts`, `packages/config`, `packages/shared`, `packages/storage`, `infra/aws/*single-az.yaml`, `infra/aws/edge-waf-count-mode.yaml`, AWS infrastructure workflows, environment examples/contracts, `docs/runbooks/ecs-single-az-cutover.md`, `docs/decision-log.md`.
 - Follow-up review notes: AWS account root session에서는 Change Set을 생성하거나 실행하지 않는다. GitHub OIDC plan/apply 역할을 최소 권한으로 분리한 뒤, 실제 적용 전 Change Set에서 기존 `AWS::RDS::DBInstance`, `AWS::S3::Bucket`, `AWS::CloudFront::Distribution`, `AWS::EC2::Instance`의 delete/replace가 없는지 확인한다. storage-owning stack을 저장소의 canonical template로 복구하고 SSE-KMS 전환 영향과 rollback을 별도로 검토한다. candidate smoke test, queue/DB active count 0, raw/evidence 및 legacy audio read, Socket.IO multi-task presence를 확인한 뒤 ECS traffic을 5→25→50→100%로 올린다.
+
+## ORBIT ECS cutover review hardening
+
+- Context: ECS 전환 기반 리뷰에서 CloudFormation의 `Modify` replacement 판정, CloudFront viewer `Host`, 기존 EC2/RDS 보안 그룹, ECS production feature flag, Service Connect namespace가 실제 배포 시 canary와 rollback 경로를 차단할 수 있음이 확인됐다.
+- Options considered:
+  - 기존 bootstrap stack에 ECS/ALB 리소스를 직접 편입하고 보안 그룹 전체 소유권을 옮긴다.
+  - CloudFront viewer `Host`를 ALB에서 public domain wildcard로 허용한다.
+  - 기존 stack 소유권을 유지하고 compute stack이 필요한 cross-stack ingress rule만 추가하며, application origin 사용 시 CloudFront가 origin host를 재생성하게 한다.
+- Final decision: compute stack은 기존 EC2/RDS security group ID를 명시적으로 받아 ALB→EC2 80과 ECS client→RDS 5432 ingress rule만 소유한다. bootstrap stack은 `ApplicationOriginDomainName`이 설정된 경우에만 API/auth/Socket.IO behavior를 `AllViewerExceptHostHeader`로 전환한다. ECS API와 Worker에는 production의 slide practice/QnA flag를 명시하고 Service Connect에는 namespace ARN을 전달한다. protected resource의 `Modify`는 `Replacement: False`가 명시된 경우에만 허용한다.
+- Rationale: 기존 stateful resource의 stack 소유권과 direct-EC2 rollback을 유지하면서도 ECS candidate의 DB, legacy target, service discovery, runtime capability를 배포 전에 결정적으로 검증할 수 있다. origin verification header와 CloudFront prefix-list 제한은 그대로 유지한다.
+- Affected files: `infra/scripts/assert-cfn-change-set-safe.mjs`, 관련 test/workflow, `infra/aws/ecs-compute-single-az.yaml`, `infra/aws/main-production-bootstrap.yaml`, `docs/runbooks/ecs-single-az-cutover.md`, `docs/decision-log.md`.
+- Follow-up review notes: 실제 Change Set에서 두 ingress rule이 add-only인지, CloudFront distribution `Modify`가 `Replacement: False`인지, ALB access log의 host가 origin domain인지, ECS runtime config의 두 flag가 `true`인지, Service Connect endpoint가 `python-worker:8000`으로 해석되는지 확인한다.

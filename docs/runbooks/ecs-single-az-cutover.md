@@ -15,11 +15,13 @@
 - Before the shared-services Change Set, create the queue Redis and private-evidence Redis AUTH secrets. Before the compute Change Set, create the origin-verification secret and a customer-managed-KMS-encrypted application runtime secret. Check only resource existence and required JSON key names; never print values.
 - Confirm the existing private-audio bucket ARN, runtime policy ARN, `raw/` 14-day lifecycle, `evidence/` 7-day lifecycle, and public-access block. ECR repositories and managed Redis are expected additions in the shared-services Change Set.
 - Verify `PublicSubnetBCidr` and `PrivateAppSubnetACidr` do not overlap existing VPC subnets, then validate all three templates with CloudFormation before opening a Change Set.
+- Record the retained bootstrap stack's `Ec2SecurityGroupId` and `RdsSecurityGroupId` outputs. Pass them to the compute stack as `LegacyEc2SecurityGroupId` and `RdsSecurityGroupId`; the compute stack owns only the additive ALB-to-EC2 port 80 and ECS-to-RDS port 5432 ingress rules.
 
 ## Required approval evidence
 
 1. Record the current application SHA, RDS manual snapshot ID, CloudFront distribution configuration export, and current stack template in the production change record.
 2. Run `Plan AWS infrastructure`; inspect the generated change set. It must contain no replacement or deletion of `AWS::RDS::DBInstance`, `AWS::S3::Bucket`, `AWS::CloudFront::Distribution`, or `AWS::EC2::Instance`.
+   A protected `Modify` is safe only when CloudFormation reports `Replacement: False`; `True`, `Conditional`, and missing replacement evidence are blocked.
 3. Apply a reviewed change set only through `Apply AWS infrastructure`, protected by GitHub environment `production` approval.
 4. Deploy `edge-waf-count-mode.yaml` in `us-east-1`, retain Count mode for at least 24 hours, and verify that WAF logging redacts `cookie`, `authorization`, and the origin verification header before a separate Block-mode PR.
 
@@ -29,8 +31,9 @@
 2. Create the shared-services stack additively: private app subnet A, NAT, S3 gateway endpoint, two TLS Redis nodes, and ECR repositories. Pass the retained production storage stack's private-audio bucket ARN and runtime policy ARN; this stack must not create or replace that bucket.
 3. Keep `S3_PRIVATE_AUDIO_BUCKET` empty on EC2 and set it only on ECS tasks after the existing policy is attached. New raw audio keys start with `raw/`, evidence derivatives start with `evidence/`, and prefixless legacy audio remains readable from the assets bucket. Verify the existing 14-day raw and 7-day evidence lifecycle rules before traffic shift.
 4. Treat the existing bucket's SSE-S3 encryption as current state. SSE-KMS hardening requires a separate reviewed update to the storage-owning stack; do not silently replace or import the bucket during this cutover.
-5. Deploy the ECS compute stack with ALB weights EC2 `100`, ECS `0`. Use a candidate CloudFront distribution for login, Deck save, OOXML sync, export, AI deck, rehearsal audio, legacy audio read, Socket.IO presence, and AI/STT/OCR job smoke tests.
-6. Run migrations as one one-off ECS API task from the immutable API digest. Never run migrations from API service startup. During the seven-day rollback window, permit expand-only schema changes; do not automate migration revert.
+5. Deploy the ECS compute stack with ALB weights EC2 `100`, ECS `0`. Confirm the stack created the ECS-client-to-RDS and ALB-to-legacy-EC2 ingress rules, and that API runtime config reports slide practice and slide question guides enabled. Use a candidate CloudFront distribution for login, Deck save, OOXML sync, export, AI deck, rehearsal audio, legacy audio read, Socket.IO presence, and AI/STT/OCR job smoke tests.
+6. In the retained bootstrap stack Change Set, set `ApplicationOriginDomainName` only after the ALB candidate is healthy. The API, auth, and Socket.IO behaviors then use CloudFront `AllViewerExceptHostHeader`, so the origin receives `origin.tryorbit.site` while existing direct-EC2 operation keeps `AllViewer`.
+7. Run migrations as one one-off ECS API task from the immutable API digest. Never run migrations from API service startup. During the seven-day rollback window, permit expand-only schema changes; do not automate migration revert.
 
 ## Worker handoff and traffic ramp
 

@@ -16,13 +16,18 @@ const protectedTypes = new Set([
 const changeSet = JSON.parse(await readFile(changeSetPath, "utf8"));
 const unsafe = (changeSet.Changes ?? []).filter(({ ResourceChange: change }) =>
   protectedTypes.has(change?.ResourceType) &&
-  ["Remove", "Delete", "Replace"].includes(change?.Action),
+  (
+    ["Remove", "Delete", "Replace"].includes(change?.Action) ||
+    (change?.Action === "Modify" && change?.Replacement !== "False")
+  ),
 );
 
 if (unsafe.length > 0) {
   console.error("Unsafe CloudFormation change set: protected resources would be replaced or deleted.");
   for (const { ResourceChange: change } of unsafe) {
-    console.error(`- ${change.ResourceType} ${change.LogicalResourceId}: ${change.Action}`);
+    console.error(
+      `- ${change.ResourceType} ${change.LogicalResourceId}: ${change.Action} (Replacement: ${change.Replacement ?? "unknown"})`,
+    );
   }
   process.exit(1);
 }

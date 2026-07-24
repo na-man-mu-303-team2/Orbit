@@ -12,6 +12,12 @@ Parameters:
     Type: AWS::EC2::Subnet::Id
   AppClientSecurityGroupId:
     Type: AWS::EC2::SecurityGroup::Id
+  LegacyEc2SecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Existing EC2 origin security group that receives rollback traffic from the ALB.
+  RdsSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Existing RDS security group that receives PostgreSQL traffic from ECS clients.
   CloudFrontOriginPrefixListId:
     Type: String
     Description: Required regional managed prefix list ID for com.amazonaws.global.cloudfront.origin-facing.
@@ -191,6 +197,26 @@ Resources:
           FromPort: 443
           ToPort: 443
           SourcePrefixListId: !Ref CloudFrontOriginPrefixListId
+
+  LegacyEc2IngressFromLoadBalancer:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref LegacyEc2SecurityGroupId
+      IpProtocol: tcp
+      FromPort: 80
+      ToPort: 80
+      SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+      Description: Allow the retained ALB rollback target to receive HTTP health checks and traffic.
+
+  RdsIngressFromEcsClients:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref RdsSecurityGroupId
+      IpProtocol: tcp
+      FromPort: 5432
+      ToPort: 5432
+      SourceSecurityGroupId: !Ref AppClientSecurityGroupId
+      Description: Allow ECS API and workers to connect to the retained PostgreSQL database.
 
   ApiTaskSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -438,6 +464,10 @@ Resources:
               Value: "false"
             - Name: ASYNC_JOB_ADMISSION_MODE
               Value: accept
+            - Name: SLIDE_PRACTICE_ENABLED
+              Value: "true"
+            - Name: SLIDE_QUESTION_GUIDES_ENABLED
+              Value: "true"
           Secrets:
             - Name: DATABASE_URL
               ValueFrom: !Sub "${AppRuntimeSecretArn}:DATABASE_URL::"
@@ -550,6 +580,10 @@ Resources:
               Value: session_demo_1
             - Name: LOG_PRETTY
               Value: "false"
+            - Name: SLIDE_PRACTICE_ENABLED
+              Value: "true"
+            - Name: SLIDE_QUESTION_GUIDES_ENABLED
+              Value: "true"
           Secrets:
             - Name: DATABASE_URL
               ValueFrom: !Sub "${AppRuntimeSecretArn}:DATABASE_URL::"
@@ -692,7 +726,7 @@ Resources:
           TargetGroupArn: !Ref EcsApiTargetGroup
       ServiceConnectConfiguration:
         Enabled: true
-        Namespace: !Ref ServiceConnectNamespace
+        Namespace: !GetAtt ServiceConnectNamespace.Arn
 
   WorkerService:
     Type: AWS::ECS::Service
@@ -716,7 +750,7 @@ Resources:
           SecurityGroups: [!Ref AppClientSecurityGroupId, !Ref WorkerTaskSecurityGroup]
       ServiceConnectConfiguration:
         Enabled: true
-        Namespace: !Ref ServiceConnectNamespace
+        Namespace: !GetAtt ServiceConnectNamespace.Arn
 
   PythonWorkerService:
     Type: AWS::ECS::Service
@@ -740,7 +774,7 @@ Resources:
           SecurityGroups: [!Ref AppClientSecurityGroupId, !Ref PythonTaskSecurityGroup]
       ServiceConnectConfiguration:
         Enabled: true
-        Namespace: !Ref ServiceConnectNamespace
+        Namespace: !GetAtt ServiceConnectNamespace.Arn
         Services:
           - PortName: python-http
             DiscoveryName: python-worker

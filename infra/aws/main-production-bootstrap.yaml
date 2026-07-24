@@ -630,7 +630,10 @@ Resources:
               - HEAD
               - OPTIONS
             CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
-            OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3
+            OriginRequestPolicyId: !If
+              - HasApplicationOrigin
+              - b689b0a8-53d0-40ab-baf2-68738e2966ac
+              - 216adef6-5c7f-47e4-b989-5492eafa07d3
           - PathPattern: /api/*
             TargetOriginId: ec2-nginx-origin
             ViewerProtocolPolicy: redirect-to-https
@@ -647,7 +650,10 @@ Resources:
               - HEAD
               - OPTIONS
             CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
-            OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3
+            OriginRequestPolicyId: !If
+              - HasApplicationOrigin
+              - b689b0a8-53d0-40ab-baf2-68738e2966ac
+              - 216adef6-5c7f-47e4-b989-5492eafa07d3
           - PathPattern: /socket.io/*
             TargetOriginId: ec2-nginx-origin
             ViewerProtocolPolicy: redirect-to-https
@@ -664,7 +670,10 @@ Resources:
               - HEAD
               - OPTIONS
             CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
-            OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3
+            OriginRequestPolicyId: !If
+              - HasApplicationOrigin
+              - b689b0a8-53d0-40ab-baf2-68738e2966ac
+              - 216adef6-5c7f-47e4-b989-5492eafa07d3
 
   StaticWebBucketPolicy:
     Type: AWS::S3::BucketPolicy
@@ -758,10 +767,14 @@ Outputs:
     Value: !Ref AssetsBucket
   Ec2InstanceId:
     Value: !Ref AppServerInstance
+  Ec2SecurityGroupId:
+    Value: !Ref Ec2SecurityGroup
   Ec2PublicDnsName:
     Value: !GetAtt AppServerInstance.PublicDnsName
   RdsEndpointAddress:
     Value: !GetAtt RdsInstance.Endpoint.Address
+  RdsSecurityGroupId:
+    Value: !Ref RdsSecurityGroup
   ProductionLogGroupName:
     Value: !Ref ProductionLogGroup
   GitHubActionsRoleArn:
