@@ -93,6 +93,18 @@ test("workflows enforce the CloudFormation execution role boundary", () => {
   );
   assert.match(
     planWorkflow,
+    /plan:\s*\n\s+if: github\.event_name == 'workflow_dispatch'[\s\S]*?permissions:\s*\n\s+contents: read\s*\n\s+id-token: write/,
+  );
+  assert.match(
+    planWorkflow,
+    /if \[ "\$GITHUB_REF" != "refs\/heads\/main" \]/,
+  );
+  assert.doesNotMatch(
+    planWorkflow,
+    /^permissions:\s*\n\s+contents: read\s*\n\s+id-token: write/m,
+  );
+  assert.match(
+    planWorkflow,
     /- \.github\/workflows\/aws-infrastructure-apply\.yml/,
   );
   assert.match(
@@ -106,5 +118,18 @@ test("workflows enforce the CloudFormation execution role boundary", () => {
   assert.doesNotMatch(
     applyWorkflow,
     /^    env:\s*\n\s+AWS_INFRA_APPLY_ROLE_ARN:/m,
+  );
+  assert.match(
+    applyWorkflow,
+    /CHANGE_SET_ARN: \$\{\{ inputs\.change_set_arn \}\}/,
+  );
+  assert.match(
+    applyWorkflow,
+    /Change set ARN must match the selected region/,
+  );
+  assert.doesNotMatch(
+    applyWorkflow,
+    /"\$\{\{ inputs\.(?:change_set_arn|region) \}\}"/,
+    "workflow inputs must not be interpolated directly into shell commands",
   );
 });
