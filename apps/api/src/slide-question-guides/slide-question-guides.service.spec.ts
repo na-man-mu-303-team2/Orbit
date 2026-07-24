@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   config: {
     SLIDE_QUESTION_GUIDES_ENABLED: true,
+    ASYNC_JOB_ADMISSION_MODE: "accept",
     JOB_QUEUE_DRIVER: "memory",
     REDIS_URL: "redis://unused",
   },
@@ -28,6 +29,7 @@ import { sha256Canonical } from "../practice-goals/evaluation-plan";
 describe("SlideQuestionGuidesService freshness", () => {
   beforeEach(() => {
     mocks.config.SLIDE_QUESTION_GUIDES_ENABLED = true;
+    mocks.config.ASYNC_JOB_ADMISSION_MODE = "accept";
     mocks.enqueue.mockReset().mockResolvedValue(undefined);
   });
 
@@ -175,6 +177,22 @@ describe("SlideQuestionGuidesService auto batch", () => {
 
     await expect(harness.service.autoCreate("project-1", "user-1", {})).rejects.toBeInstanceOf(ForbiddenException);
     expect(harness.decksService.getDeck).not.toHaveBeenCalled();
+  });
+
+  it("rejects manual and automatic guide admission while draining", async () => {
+    mocks.config.ASYNC_JOB_ADMISSION_MODE = "drain";
+    const harness = createHarness();
+
+    await expect(harness.service.create("project-1", "user-1", {})).rejects.toMatchObject({
+      status: 503,
+      response: { code: "ASYNC_JOB_ADMISSION_DRAINING" },
+    });
+    await expect(harness.service.autoCreate("project-1", "user-1", {})).rejects.toMatchObject({
+      status: 503,
+      response: { code: "ASYNC_JOB_ADMISSION_DRAINING" },
+    });
+    expect(harness.decksService.getDeck).not.toHaveBeenCalled();
+    expect(harness.jobsService.create).not.toHaveBeenCalled();
   });
 });
 

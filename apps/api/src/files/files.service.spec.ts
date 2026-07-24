@@ -371,13 +371,13 @@ describe("FilesService", () => {
 
     expect(storage.createUploadUrl).toHaveBeenCalledWith(
       expect.objectContaining({
-        key: `rehearsals/2026-07-16/${demoProject.projectId}/run_123/audio.ogg`,
+        key: `private/rehearsals/2026-07-16/${demoProject.projectId}/run_123/audio.ogg`,
         contentType: "audio/ogg",
       }),
     );
     expect(assets[0]).toMatchObject({
       purpose: "rehearsal-audio",
-      storageKey: `rehearsals/2026-07-16/${demoProject.projectId}/run_123/audio.ogg`,
+      storageKey: `private/rehearsals/2026-07-16/${demoProject.projectId}/run_123/audio.ogg`,
     });
   });
 

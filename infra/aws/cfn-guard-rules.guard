@@ -1,0 +1,22 @@
+let protected_resources = Resources.*[
+  Type == "AWS::RDS::DBInstance" ||
+  Type == "AWS::S3::Bucket" ||
+  Type == "AWS::CloudFront::Distribution" ||
+  Type == "AWS::EC2::Instance"
+]
+
+rule retained_protected_resources when %protected_resources !empty {
+  %protected_resources {
+    DeletionPolicy exists
+    DeletionPolicy == /Retain|Snapshot/
+    UpdateReplacePolicy exists
+    UpdateReplacePolicy == /Retain|Snapshot/
+  }
+}
+
+rule fargate_tasks_use_awsvpc when Resources.*[ Type == "AWS::ECS::TaskDefinition" ] !empty {
+  Resources.*[ Type == "AWS::ECS::TaskDefinition" ] {
+    Properties.NetworkMode == "awsvpc"
+    Properties.RequiresCompatibilities[*] == "FARGATE"
+  }
+}

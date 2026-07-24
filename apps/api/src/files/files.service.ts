@@ -101,6 +101,7 @@ export class FilesService {
       key: storageKey,
       contentType: input.mimeType,
       expiresInSeconds: uploadUrlExpiresInSeconds,
+      purpose: input.purpose,
       requestOrigin,
     });
 
@@ -140,7 +141,7 @@ export class FilesService {
   ): Promise<AssetUploadUrlResponse> {
     const extension = rehearsalAudioExtension(input.mimeType);
     const date = formatAsiaSeoulDate(rehearsal.createdAt);
-    const storageKey = `rehearsals/${date}/${projectId}/${rehearsal.runId}/audio.${extension}`;
+    const storageKey = `private/rehearsals/${date}/${projectId}/${rehearsal.runId}/audio.${extension}`;
     return this.createUploadUrl(projectId, input, undefined, storageKey);
   }
 
@@ -151,7 +152,7 @@ export class FilesService {
   ): Promise<AssetUploadUrlResponse> {
     const extension = rehearsalAudioExtension(input.mimeType);
     const date = formatAsiaSeoulDate(presentation.createdAt);
-    const storageKey = `presentations/${date}/${projectId}/${presentation.runId}/audio.${extension}`;
+    const storageKey = `private/presentations/${date}/${projectId}/${presentation.runId}/audio.${extension}`;
     return this.createUploadUrl(projectId, input, undefined, storageKey);
   }
 
@@ -571,6 +572,7 @@ export class FilesService {
     key: string;
     contentType: string;
     expiresInSeconds: number;
+    purpose?: FilePurpose;
     requestOrigin?: string | null;
   }) {
     if (this.uploadProxyOrigin) {

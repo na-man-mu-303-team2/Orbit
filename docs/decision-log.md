@@ -845,3 +845,15 @@
 - Rationale: 시각 변경과 다른 슬라이드 편집으로 녹음·질문 생성을 잃지 않으면서, 실제 발표 텍스트나 대본이 바뀐 경우에는 오래된 입력으로 분석하지 않는다. DB migration이나 raw slide 원문 로그 없이 기존 frozen snapshot과 provenance 계약을 유지한다.
 - Affected files: `packages/shared/src/slide-practice`, `apps/api/src/slide-practice`, `apps/api/src/slide-question-guides`, `apps/web/src/features/editor/practice`, `apps/web/src/features/editor/shell`, `docs/contracts.md`, 관련 테스트.
 - Follow-up review notes: 다른 slide/visual-only edit 뒤 연습 종료와 QnA 생성이 성공하는지, target speaker notes 변경은 upload·Job 생성 전에 한국어 안내로 중단되는지, 로그에 원문 없이 requested/resolved version과 freshness resolution만 남는지 확인한다.
+
+## ORBIT single-workload-AZ ECS migration foundation
+
+- Context: 기존 production은 하나의 EC2 Compose 경로가 API, Worker, Python Worker와 local Redis를 함께 소유한다. 무중단에 가까운 ECS 전환을 위해서는 기존 CloudFront·EC2·RDS를 즉시 교체하지 않고, Job admission과 Socket.IO presence, 민감 오디오 저장소, digest 기반 배포 및 rollback 경계를 먼저 마련해야 한다.
+- Options considered:
+  - 기존 bootstrap stack에서 EC2를 ECS로 한 번에 교체하고 local Redis 및 assets bucket도 동시에 전환한다.
+  - 별도 ECS 환경을 만든 뒤 DNS를 즉시 ECS 100%로 전환한다.
+  - 기존 리소스를 유지한 채 shared-services, ECS compute, edge WAF를 additive stack으로 만들고 ALB 가중치와 admission drain을 사용해 단계적으로 전환한다.
+- Final decision: production entry CloudFront와 기존 EC2/RDS는 기존 bootstrap stack이 계속 소유한다. 새 stack은 public ALB용 2개 subnet과 단일 workload AZ의 NAT·ECS·Redis를 만들며, 초기 ALB 가중치는 EC2 100/ECS 0으로 고정한다. 신규 비동기 Job은 `ASYNC_JOB_ADMISSION_MODE`로 drain하고, Socket.IO presence는 adapter-wide `fetchSockets()`를 사용한다. 신규 private audio는 전용 SSE-KMS bucket의 `private/` key로 저장하되 prefix 없는 legacy key는 assets bucket에서 계속 읽는다. 이미지와 task definition은 ECR digest로 고정하고, 모든 인프라 변경은 비실행 Change Set 검토와 production environment 승인 후에만 적용한다.
+- Rationale: 기존 서비스와 데이터 경로를 rollback 대상으로 보존하면서 API traffic, Worker ownership, Redis, private storage를 서로 다른 단계로 검증할 수 있다. CloudFormation replacement/delete 방지 검사와 수동 승인 경계가 기존 stateful resource의 우발적 손실을 차단한다.
+- Affected files: `apps/api/src/jobs/async-job-admission.ts`, Deck·slide question guide·realtime·file service와 관련 tests, `apps/worker/src/storage.ts`, `packages/config`, `packages/shared`, `packages/storage`, `infra/aws/*single-az.yaml`, `infra/aws/edge-waf-count-mode.yaml`, AWS infrastructure workflows, environment examples/contracts, `docs/runbooks/ecs-single-az-cutover.md`, `docs/decision-log.md`.
+- Follow-up review notes: 실제 AWS 적용 전 Change Set에서 기존 `AWS::RDS::DBInstance`, `AWS::S3::Bucket`, `AWS::CloudFront::Distribution`, `AWS::EC2::Instance`의 delete/replace가 없는지 확인한다. candidate smoke test, queue/DB active count 0, private/legacy audio read, Socket.IO multi-task presence를 확인한 뒤 ECS traffic을 5→25→50→100%로 올린다.
