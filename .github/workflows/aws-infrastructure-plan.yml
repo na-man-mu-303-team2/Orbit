@@ -58,8 +58,8 @@ jobs:
         run: |
           set -euo pipefail
           pipx install cfn-lint
-          curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/aws-cloudformation/cloudformation-guard/main/install-guard.sh | sh
-          echo "$HOME/.guard/bin" >> "$GITHUB_PATH"
+          cargo install cfn-guard --version 3.1.2 --locked
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - name: Run static IaC validators
         run: |
           set -euo pipefail
