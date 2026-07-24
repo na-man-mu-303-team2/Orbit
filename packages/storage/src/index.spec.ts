@@ -9,14 +9,21 @@ describe("ORBIT-93 S3-compatible storage presign", () => {
     const storage = new PurposeRoutedStorage(assets, privateAudio);
 
     await storage.createUploadUrl({
-      key: "private/rehearsals/2026-07-24/project-a/run-a/audio.webm",
+      key: "raw/rehearsals/2026-07-24/project-a/run-a/audio.webm",
       contentType: "audio/webm",
       expiresInSeconds: 60,
       purpose: "rehearsal-audio",
     });
+    await storage.getSignedReadUrl(
+      "evidence/rehearsals/2026-07-24/project-a/run-a/clip.wav",
+    );
     await storage.getSignedReadUrl("rehearsals/2026-07-23/project-a/run-a/audio.webm");
 
     expect(privateAudio.createUploadUrl).toHaveBeenCalledOnce();
+    expect(privateAudio.getSignedReadUrl).toHaveBeenCalledWith(
+      "evidence/rehearsals/2026-07-24/project-a/run-a/clip.wav",
+      undefined,
+    );
     expect(assets.getSignedReadUrl).toHaveBeenCalledWith(
       "rehearsals/2026-07-23/project-a/run-a/audio.webm",
       undefined,

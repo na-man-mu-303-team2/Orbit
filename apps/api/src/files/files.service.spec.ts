@@ -371,14 +371,43 @@ describe("FilesService", () => {
 
     expect(storage.createUploadUrl).toHaveBeenCalledWith(
       expect.objectContaining({
-        key: `private/rehearsals/2026-07-16/${demoProject.projectId}/run_123/audio.ogg`,
+        key: `raw/rehearsals/2026-07-16/${demoProject.projectId}/run_123/audio.ogg`,
         contentType: "audio/ogg",
       }),
     );
     expect(assets[0]).toMatchObject({
       purpose: "rehearsal-audio",
-      storageKey: `private/rehearsals/2026-07-16/${demoProject.projectId}/run_123/audio.ogg`,
+      storageKey: `raw/rehearsals/2026-07-16/${demoProject.projectId}/run_123/audio.ogg`,
     });
+  });
+
+  it("creates generic private-audio uploads under the raw lifecycle prefix", async () => {
+    const { assets, service, storage } = createService({
+      getAccessibleProject: vi.fn(async () => demoProject),
+    });
+
+    await service.createUploadUrl(demoProject.projectId, {
+      originalName: "focused-attempt.webm",
+      mimeType: "audio/webm",
+      size: 1024,
+      purpose: "focused-practice-audio",
+    });
+
+    expect(storage.createUploadUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: expect.stringMatching(
+          new RegExp(
+            `^raw/projects/${demoProject.projectId}/assets/file_.+-focused-attempt\\.webm$`,
+          ),
+        ),
+        purpose: "focused-practice-audio",
+      }),
+    );
+    expect(assets[0].storageKey).toMatch(
+      new RegExp(
+        `^raw/projects/${demoProject.projectId}/assets/file_.+-focused-attempt\\.webm$`,
+      ),
+    );
   });
 
   it("hides private audio from generic complete, get, list, and content boundaries", async () => {
@@ -519,7 +548,7 @@ describe("FilesService", () => {
 
     expect(result).toMatchObject({
       storageKey:
-        "rehearsals/2026-07-18/project_demo_created/run_123/volume-10000-12000.wav",
+        "evidence/rehearsals/2026-07-18/project_demo_created/run_123/volume-10000-12000.wav",
       contentType: "audio/wav",
       created: true,
     });

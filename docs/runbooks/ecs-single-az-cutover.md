@@ -17,10 +17,11 @@
 ## Build and candidate verification
 
 1. Let `Build and push images` copy the exact `main` SHA manifest to ECR and record immutable `@sha256` digests. Supply only those digests to the ECS compute change set.
-2. Create the shared-services stack additively: private app subnet A, NAT, S3 gateway endpoint, two TLS Redis nodes, private-audio bucket/KMS, and ECR repositories.
-3. Keep `S3_PRIVATE_AUDIO_BUCKET` empty on EC2. After its IAM/KMS policy and bucket are ready, set it only on ECS tasks. New private keys start with `private/`; legacy audio has no prefix and remains readable from the assets bucket.
-4. Deploy the ECS compute stack with ALB weights EC2 `100`, ECS `0`. Use a candidate CloudFront distribution for login, Deck save, OOXML sync, export, AI deck, rehearsal audio, legacy audio read, Socket.IO presence, and AI/STT/OCR job smoke tests.
-5. Run migrations as one one-off ECS API task from the immutable API digest. Never run migrations from API service startup. During the seven-day rollback window, permit expand-only schema changes; do not automate migration revert.
+2. Create the shared-services stack additively: private app subnet A, NAT, S3 gateway endpoint, two TLS Redis nodes, and ECR repositories. Pass the retained production storage stack's private-audio bucket ARN and runtime policy ARN; this stack must not create or replace that bucket.
+3. Keep `S3_PRIVATE_AUDIO_BUCKET` empty on EC2 and set it only on ECS tasks after the existing policy is attached. New raw audio keys start with `raw/`, evidence derivatives start with `evidence/`, and prefixless legacy audio remains readable from the assets bucket. Verify the existing 14-day raw and 7-day evidence lifecycle rules before traffic shift.
+4. Treat the existing bucket's SSE-S3 encryption as current state. SSE-KMS hardening requires a separate reviewed update to the storage-owning stack; do not silently replace or import the bucket during this cutover.
+5. Deploy the ECS compute stack with ALB weights EC2 `100`, ECS `0`. Use a candidate CloudFront distribution for login, Deck save, OOXML sync, export, AI deck, rehearsal audio, legacy audio read, Socket.IO presence, and AI/STT/OCR job smoke tests.
+6. Run migrations as one one-off ECS API task from the immutable API digest. Never run migrations from API service startup. During the seven-day rollback window, permit expand-only schema changes; do not automate migration revert.
 
 ## Worker handoff and traffic ramp
 

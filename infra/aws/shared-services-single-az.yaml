@@ -2,7 +2,7 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
   ORBIT shared production services for a single-workload-AZ ECS cutover.
   Public ALB subnets intentionally span two AZs; application, NAT, Redis, and
-  private-audio workloads remain in the selected workload AZ.
+  private-audio access reuses the retained production storage stack.
 
 Parameters:
   VpcId:
@@ -25,12 +25,14 @@ Parameters:
   PrivateAppSubnetACidr:
     Type: String
     Default: 10.42.20.0/24
-  PrivateAudioBucketName:
+  ExistingPrivateAudioBucketArn:
     Type: String
-    AllowedPattern: "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
-  PrivateAudioCorsAllowedOrigins:
-    Type: CommaDelimitedList
-    Description: Exact HTTPS web origins allowed to use private-audio presigned URLs.
+    AllowedPattern: "^arn:[^:]+:s3:::[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
+    Description: Retained private-audio bucket ARN from the existing production storage stack.
+  ExistingPrivateAudioAccessPolicyArn:
+    Type: String
+    AllowedPattern: "^arn:[^:]+:iam::[0-9]{12}:policy/.+$"
+    Description: Existing least-privilege private-audio runtime policy ARN.
   QueueRedisAuthTokenSecretArn:
     Type: String
     NoEcho: true
@@ -200,92 +202,6 @@ Resources:
       CacheSubnetGroupName: !Ref RedisSubnetGroup
       AutoMinorVersionUpgrade: true
 
-  PrivateAudioKey:
-    Type: AWS::KMS::Key
-    Properties:
-      Description: ORBIT private rehearsal and practice audio encryption key
-      EnableKeyRotation: true
-      KeyPolicy:
-        Version: "2012-10-17"
-        Statement:
-          - Sid: EnableRootAdministration
-            Effect: Allow
-            Principal:
-              AWS: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:root
-            Action: kms:*
-            Resource: "*"
-
-  PrivateAudioKeyAlias:
-    Type: AWS::KMS::Alias
-    Properties:
-      AliasName: !Sub alias/${AWS::StackName}-private-audio
-      TargetKeyId: !Ref PrivateAudioKey
-
-  PrivateAudioBucket:
-    Type: AWS::S3::Bucket
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-    Properties:
-      BucketName: !Ref PrivateAudioBucketName
-      OwnershipControls:
-        Rules:
-          - ObjectOwnership: BucketOwnerEnforced
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
-      BucketEncryption:
-        ServerSideEncryptionConfiguration:
-          - ServerSideEncryptionByDefault:
-              SSEAlgorithm: aws:kms
-              KMSMasterKeyID: !GetAtt PrivateAudioKey.Arn
-            BucketKeyEnabled: true
-      CorsConfiguration:
-        CorsRules:
-          - AllowedHeaders:
-              - content-type
-            AllowedMethods:
-              - GET
-              - PUT
-            AllowedOrigins: !Ref PrivateAudioCorsAllowedOrigins
-            ExposedHeaders:
-              - ETag
-            MaxAge: 300
-      LifecycleConfiguration:
-        Rules:
-          - Id: FinalPrivateAudioExpirySafetyNet
-            Status: Enabled
-            ExpirationInDays: 30
-            AbortIncompleteMultipartUpload:
-              DaysAfterInitiation: 1
-
-  PrivateAudioAccessPolicy:
-    Type: AWS::IAM::ManagedPolicy
-    Properties:
-      Description: Least-privilege private audio object and KMS access for ORBIT compute roles
-      PolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Action:
-              - s3:ListBucket
-            Resource: !GetAtt PrivateAudioBucket.Arn
-          - Effect: Allow
-            Action:
-              - s3:GetObject
-              - s3:PutObject
-              - s3:DeleteObject
-            Resource: !Sub ${PrivateAudioBucket.Arn}/*
-          - Effect: Allow
-            Action:
-              - kms:Decrypt
-              - kms:GenerateDataKey
-            Resource: !GetAtt PrivateAudioKey.Arn
-            Condition:
-              StringEquals:
-                kms:ViaService: !Sub s3.${AWS::Region}.amazonaws.com
-
   ApiRepository:
     Type: AWS::ECR::Repository
     Properties:
@@ -338,13 +254,11 @@ Outputs:
       - Address: !GetAtt PrivateEvidenceRedis.PrimaryEndPoint.Address
         Port: !GetAtt PrivateEvidenceRedis.PrimaryEndPoint.Port
   PrivateAudioBucketName:
-    Value: !Ref PrivateAudioBucket
+    Value: !Select [5, !Split [":", !Ref ExistingPrivateAudioBucketArn]]
   PrivateAudioBucketArn:
-    Value: !GetAtt PrivateAudioBucket.Arn
-  PrivateAudioKeyArn:
-    Value: !GetAtt PrivateAudioKey.Arn
+    Value: !Ref ExistingPrivateAudioBucketArn
   PrivateAudioAccessPolicyArn:
-    Value: !Ref PrivateAudioAccessPolicy
+    Value: !Ref ExistingPrivateAudioAccessPolicyArn
   ApiRepositoryUri:
     Value: !GetAtt ApiRepository.RepositoryUri
   WorkerRepositoryUri:

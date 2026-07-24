@@ -94,7 +94,12 @@ export class FilesService {
     const fileId = `file_${randomUUID()}`;
     const storageKey =
       storageKeyOverride ??
-      this.createStorageKey(project.projectId, fileId, input.originalName);
+      this.createStorageKey(
+        project.projectId,
+        fileId,
+        input.originalName,
+        input.purpose,
+      );
     const uploadUrl = await this.createUploadTarget({
       projectId: project.projectId,
       fileId,
@@ -141,7 +146,7 @@ export class FilesService {
   ): Promise<AssetUploadUrlResponse> {
     const extension = rehearsalAudioExtension(input.mimeType);
     const date = formatAsiaSeoulDate(rehearsal.createdAt);
-    const storageKey = `private/rehearsals/${date}/${projectId}/${rehearsal.runId}/audio.${extension}`;
+    const storageKey = `raw/rehearsals/${date}/${projectId}/${rehearsal.runId}/audio.${extension}`;
     return this.createUploadUrl(projectId, input, undefined, storageKey);
   }
 
@@ -152,7 +157,7 @@ export class FilesService {
   ): Promise<AssetUploadUrlResponse> {
     const extension = rehearsalAudioExtension(input.mimeType);
     const date = formatAsiaSeoulDate(presentation.createdAt);
-    const storageKey = `private/presentations/${date}/${projectId}/${presentation.runId}/audio.${extension}`;
+    const storageKey = `raw/presentations/${date}/${projectId}/${presentation.runId}/audio.${extension}`;
     return this.createUploadUrl(projectId, input, undefined, storageKey);
   }
 
@@ -299,10 +304,13 @@ export class FilesService {
     }
 
     const asset = await this.getUploadedAsset(projectId, fileId, purpose);
-    const separatorIndex = asset.storageKey.lastIndexOf("/");
+    const rawRelativeKey = asset.storageKey.startsWith("raw/")
+      ? asset.storageKey.slice("raw/".length)
+      : asset.storageKey;
+    const separatorIndex = rawRelativeKey.lastIndexOf("/");
     const storageFolder =
-      separatorIndex >= 0 ? asset.storageKey.slice(0, separatorIndex + 1) : "";
-    const storageKey = `${storageFolder}${derivativeFileName}`;
+      separatorIndex >= 0 ? rawRelativeKey.slice(0, separatorIndex + 1) : "";
+    const storageKey = `evidence/${storageFolder}${derivativeFileName}`;
     const existing = await this.storage.headObject(storageKey);
     if (existing) {
       const stored = await this.storage.getObject(storageKey);
@@ -560,8 +568,14 @@ export class FilesService {
     projectId: string,
     fileId: string,
     originalName: string,
+    purpose: FilePurpose,
   ): string {
     const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, "_");
+
+    if (privateAudioPurposes.has(purpose)) {
+      return `raw/projects/${projectId}/assets/${fileId}-${safeName}`;
+    }
+
     return `projects/${projectId}/assets/${fileId}-${safeName}`;
   }
 

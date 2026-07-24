@@ -279,6 +279,8 @@ export class S3Storage extends S3CompatibleStorage {
   }
 }
 
+const privateAudioStoragePrefixes = ["raw/", "evidence/"] as const;
+
 export class PurposeRoutedStorage implements StoragePort {
   constructor(
     private readonly assets: StoragePort,
@@ -320,7 +322,8 @@ export class PurposeRoutedStorage implements StoragePort {
   }
 
   private storageForKey(key: string) {
-    return key.startsWith("private/") && this.privateAudio
+    return privateAudioStoragePrefixes.some((prefix) => key.startsWith(prefix)) &&
+      this.privateAudio
       ? this.privateAudio
       : this.assets;
   }
