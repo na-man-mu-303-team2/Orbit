@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -71,4 +71,65 @@ test("allows a newly added protected resource", () => {
   });
 
   assert.equal(result.status, 0);
+});
+
+test("workflows enforce the CloudFormation execution role boundary", () => {
+  const planWorkflow = readFileSync(
+    ".github/workflows/aws-infrastructure-plan.yml",
+    "utf8",
+  );
+  const applyWorkflow = readFileSync(
+    ".github/workflows/aws-infrastructure-apply.yml",
+    "utf8",
+  );
+
+  assert.match(
+    planWorkflow,
+    /AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN: \$\{\{ vars\.AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN \}\}/,
+  );
+  assert.match(
+    planWorkflow,
+    /--role-arn "\$AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN"/,
+  );
+  assert.match(
+    planWorkflow,
+    /plan:\s*\n\s+if: github\.event_name == 'workflow_dispatch'[\s\S]*?permissions:\s*\n\s+contents: read\s*\n\s+id-token: write/,
+  );
+  assert.match(
+    planWorkflow,
+    /if \[ "\$GITHUB_REF" != "refs\/heads\/main" \]/,
+  );
+  assert.doesNotMatch(
+    planWorkflow,
+    /^permissions:\s*\n\s+contents: read\s*\n\s+id-token: write/m,
+  );
+  assert.match(
+    planWorkflow,
+    /- \.github\/workflows\/aws-infrastructure-apply\.yml/,
+  );
+  assert.match(
+    applyWorkflow,
+    /AWS_INFRA_APPLY_ROLE_ARN: \$\{\{ vars\.AWS_INFRA_APPLY_ROLE_ARN \}\}/,
+  );
+  assert.match(
+    applyWorkflow,
+    /role-to-assume: \$\{\{ vars\.AWS_INFRA_APPLY_ROLE_ARN \}\}/,
+  );
+  assert.doesNotMatch(
+    applyWorkflow,
+    /^    env:\s*\n\s+AWS_INFRA_APPLY_ROLE_ARN:/m,
+  );
+  assert.match(
+    applyWorkflow,
+    /CHANGE_SET_ARN: \$\{\{ inputs\.change_set_arn \}\}/,
+  );
+  assert.match(
+    applyWorkflow,
+    /Change set ARN must match the selected region/,
+  );
+  assert.doesNotMatch(
+    applyWorkflow,
+    /"\$\{\{ inputs\.(?:change_set_arn|region) \}\}"/,
+    "workflow inputs must not be interpolated directly into shell commands",
+  );
 });
