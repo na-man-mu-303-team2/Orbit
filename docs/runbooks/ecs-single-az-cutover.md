@@ -7,6 +7,15 @@
 - No runbook step prints a secret, cookie, Redis value, raw audio, or transcript. Confirm only secret existence and configuration references.
 - `infra/aws/main-production-bootstrap.yaml` continues to own the existing EC2/RDS/CloudFront resources. Do not import, replace, or delete them in the new stacks.
 
+## Pre-change readiness gate
+
+- Do not create or execute a Change Set with an AWS account root session. Configure separate least-privilege GitHub OIDC roles in `AWS_INFRA_PLAN_ROLE_ARN` and `AWS_INFRA_APPLY_ROLE_ARN`; the apply role remains behind the `production` environment approval.
+- Confirm `origin.tryorbit.site` has an issued ACM certificate in `ap-northeast-2`. The existing CloudFront certificate in `us-east-1` cannot terminate the regional ALB listener.
+- Confirm the Route 53 public hosted zone and the regional `com.amazonaws.global.cloudfront.origin-facing` managed prefix list exist. Pass the hosted zone ID and prefix-list ID as identifiers; never put DNS or verification secret values in workflow inputs.
+- Before the shared-services Change Set, create the queue Redis and private-evidence Redis AUTH secrets. Before the compute Change Set, create the origin-verification secret and a customer-managed-KMS-encrypted application runtime secret. Check only resource existence and required JSON key names; never print values.
+- Confirm the existing private-audio bucket ARN, runtime policy ARN, `raw/` 14-day lifecycle, `evidence/` 7-day lifecycle, and public-access block. ECR repositories and managed Redis are expected additions in the shared-services Change Set.
+- Verify `PublicSubnetBCidr` and `PrivateAppSubnetACidr` do not overlap existing VPC subnets, then validate all three templates with CloudFormation before opening a Change Set.
+
 ## Required approval evidence
 
 1. Record the current application SHA, RDS manual snapshot ID, CloudFront distribution configuration export, and current stack template in the production change record.
