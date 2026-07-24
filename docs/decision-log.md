@@ -881,3 +881,15 @@
 - Rationale: 기존 stateful resource의 stack 소유권과 direct-EC2 rollback을 유지하면서도 ECS candidate의 DB, legacy target, service discovery, runtime capability를 배포 전에 결정적으로 검증할 수 있다. origin verification header와 CloudFront prefix-list 제한은 그대로 유지한다.
 - Affected files: `infra/scripts/assert-cfn-change-set-safe.mjs`, 관련 test/workflow, `infra/aws/ecs-compute-single-az.yaml`, `infra/aws/main-production-bootstrap.yaml`, `docs/runbooks/ecs-single-az-cutover.md`, `docs/decision-log.md`.
 - Follow-up review notes: 실제 Change Set에서 두 ingress rule이 add-only인지, CloudFront distribution `Modify`가 `Replacement: False`인지, ALB access log의 host가 origin domain인지, ECS runtime config의 두 flag가 `true`인지, Service Connect endpoint가 `python-worker:8000`으로 해석되는지 확인한다.
+
+## ORBIT CloudFormation execution role boundary
+
+- Context: ECS 전환용 Plan/Apply workflow가 서로 다른 GitHub OIDC role을 사용하지만 `create-change-set`에 CloudFormation service role을 지정하지 않았다. 이 상태에서는 CloudFormation이 호출자의 임시 자격 증명을 사용하므로 Apply role이 ECS, EC2, ElastiCache, IAM 등 실제 리소스 생성 권한까지 직접 가져야 하며, 검토된 Change Set ARN만 입력받는 Apply workflow도 승인된 실행 역할을 사용했는지 확인하지 못한다.
+- Options considered:
+  - Apply OIDC role에 모든 리소스 provisioning 권한을 직접 부여한다.
+  - Plan/Apply role을 하나로 합치고 `AdministratorAccess`를 부여한다.
+  - GitHub OIDC 역할은 Change Set 제어와 특정 역할에 대한 `iam:PassRole`만 담당하고, 실제 provisioning은 별도 CloudFormation execution role로 분리한다.
+- Final decision: repository variable `AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN`을 필수 계약으로 추가한다. Plan workflow는 `create-change-set --role-arn`으로 이 역할을 고정하고, Plan과 Apply는 `DescribeChangeSet`의 `RoleARN`이 변수와 정확히 같은지 실행 직전까지 검사한다. `AWS_INFRA_PLAN_ROLE_ARN`, production environment의 `AWS_INFRA_APPLY_ROLE_ARN`, `AWS_ECR_PUBLISH_ROLE_ARN`, CloudFormation execution role은 서로 재사용하지 않는다. Plan role의 `iam:PassRole`은 execution role ARN 하나와 `iam:PassedToService=cloudformation.amazonaws.com`으로 제한하고, Apply role에는 `iam:PassRole`을 부여하지 않는다.
+- Rationale: GitHub workflow 자격 증명이 직접 가질 수 있는 blast radius를 줄이고, production 승인자가 검토한 Change Set이 승인되지 않은 더 강한 역할로 실행되는 것을 차단한다. CloudFormation service role은 stack에 연결된 이후 해당 stack의 후속 작업에도 사용되므로, 실행 역할 자체도 템플릿에 필요한 최소권한과 별도 변경 검토를 유지한다.
+- Affected files: `.github/workflows/aws-infrastructure-plan.yml`, `.github/workflows/aws-infrastructure-apply.yml`, `infra/scripts/assert-cfn-change-set-safe.mjs`, 관련 테스트, `docs/runbooks/ecs-single-az-cutover.md`, `docs/decision-log.md`.
+- Follow-up review notes: AWS에서 역할 네 개의 trust/permissions를 각각 검토하고 GitHub 변수를 등록한 뒤에만 실제 Change Set을 생성한다. `production` required reviewer를 지정하고 self-review 방지 정책을 확인한다. 기존 stack에 이미 service role이 연결되어 있다면 역할을 바꾸기 전 권한과 rollback 영향을 별도 검토한다.

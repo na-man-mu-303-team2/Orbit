@@ -26,21 +26,30 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 45
+    env:
+      AWS_INFRA_APPLY_ROLE_ARN: ${{ vars.AWS_INFRA_APPLY_ROLE_ARN }}
+      AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN: ${{ vars.AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN }}
     steps:
       - uses: actions/checkout@v4
+      - name: Require AWS deployment role configuration
+        run: |
+          set -euo pipefail
+          : "${AWS_INFRA_APPLY_ROLE_ARN:?Production variable AWS_INFRA_APPLY_ROLE_ARN must be configured}"
+          : "${AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN:?Repository variable AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN must be configured}"
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-region: ${{ inputs.region }}
-          role-to-assume: ${{ vars.AWS_INFRA_APPLY_ROLE_ARN }}
+          role-to-assume: ${{ env.AWS_INFRA_APPLY_ROLE_ARN }}
       - name: Recheck reviewed change set before execution
         run: |
           set -euo pipefail
           aws cloudformation describe-change-set --change-set-name "${{ inputs.change_set_arn }}" --region "${{ inputs.region }}" --output json > change-set.json
-          node infra/scripts/assert-cfn-change-set-safe.mjs change-set.json
+          node infra/scripts/assert-cfn-change-set-safe.mjs change-set.json "$AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN"
       - name: Execute approved change set
         run: |
           set -euo pipefail
           aws cloudformation describe-change-set --change-set-name "${{ inputs.change_set_arn }}" --region "${{ inputs.region }}" --output json > approved-change-set.json
+          node infra/scripts/assert-cfn-change-set-safe.mjs approved-change-set.json "$AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN"
           stack_id="$(jq -r '.StackId' approved-change-set.json)"
           change_set_type="$(jq -r '.ChangeSetType' approved-change-set.json)"
           aws cloudformation execute-change-set --change-set-name "${{ inputs.change_set_arn }}" --region "${{ inputs.region }}"

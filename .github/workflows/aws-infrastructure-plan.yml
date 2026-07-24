@@ -6,6 +6,7 @@ on:
     paths:
       - infra/aws/**
       - infra/scripts/assert-cfn-change-set-safe.mjs
+      - infra/scripts/assert-cfn-change-set-safe.test.mjs
       - .github/workflows/aws-infrastructure-plan.yml
   workflow_dispatch:
     inputs:
@@ -42,15 +43,23 @@ jobs:
     env:
       AWS_REGION: ${{ inputs.region || vars.AWS_REGION || 'ap-northeast-2' }}
       AWS_STACK_NAME: ${{ inputs.stack_name || vars.AWS_INFRA_PLAN_STACK_NAME }}
+      AWS_INFRA_PLAN_ROLE_ARN: ${{ vars.AWS_INFRA_PLAN_ROLE_ARN }}
+      AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN: ${{ vars.AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN }}
       TEMPLATE_FILE: ${{ inputs.template_file || 'infra/aws/shared-services-single-az.yaml' }}
       PARAMETER_OVERRIDES: ${{ inputs.parameter_overrides }}
     steps:
       - uses: actions/checkout@v4
       - if: github.event_name == 'workflow_dispatch'
+        name: Require AWS deployment role configuration
+        run: |
+          set -euo pipefail
+          : "${AWS_INFRA_PLAN_ROLE_ARN:?Repository variable AWS_INFRA_PLAN_ROLE_ARN must be configured}"
+          : "${AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN:?Repository variable AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN must be configured}"
+      - if: github.event_name == 'workflow_dispatch'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-region: ${{ env.AWS_REGION }}
-          role-to-assume: ${{ vars.AWS_INFRA_PLAN_ROLE_ARN }}
+          role-to-assume: ${{ env.AWS_INFRA_PLAN_ROLE_ARN }}
       - if: github.event_name == 'workflow_dispatch'
         name: Validate template
         run: aws cloudformation validate-template --template-body file://"$TEMPLATE_FILE" --region "$AWS_REGION" >/dev/null
@@ -94,6 +103,7 @@ jobs:
             --template-body "file://$TEMPLATE_FILE" \
             --parameters $PARAMETER_OVERRIDES \
             --capabilities CAPABILITY_NAMED_IAM \
+            --role-arn "$AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN" \
             --region "$AWS_REGION" \
             --query Id --output text > change-set-id.txt
           echo "id=$(cat change-set-id.txt)" >> "$GITHUB_OUTPUT"
@@ -103,7 +113,7 @@ jobs:
           set -euo pipefail
           aws cloudformation wait change-set-create-complete --change-set-name "${{ steps.change-set.outputs.id }}" --region "$AWS_REGION"
           aws cloudformation describe-change-set --change-set-name "${{ steps.change-set.outputs.id }}" --region "$AWS_REGION" --output json > change-set.json
-          node infra/scripts/assert-cfn-change-set-safe.mjs change-set.json
+          node infra/scripts/assert-cfn-change-set-safe.mjs change-set.json "$AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN"
       - if: github.event_name == 'workflow_dispatch'
         name: Upload change set evidence
         uses: actions/upload-artifact@v4
