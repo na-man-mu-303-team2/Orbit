@@ -30,6 +30,7 @@ describe("SlideQuestionGuidesService freshness", () => {
   beforeEach(() => {
     mocks.config.SLIDE_QUESTION_GUIDES_ENABLED = true;
     mocks.config.ASYNC_JOB_ADMISSION_MODE = "accept";
+    process.env.ASYNC_JOB_ADMISSION_MODE = "accept";
     mocks.enqueue.mockReset().mockResolvedValue(undefined);
   });
 
@@ -94,6 +95,8 @@ describe("SlideQuestionGuidesService freshness", () => {
 describe("SlideQuestionGuidesService auto batch", () => {
   beforeEach(() => {
     mocks.config.SLIDE_QUESTION_GUIDES_ENABLED = true;
+    mocks.config.ASYNC_JOB_ADMISSION_MODE = "accept";
+    process.env.ASYNC_JOB_ADMISSION_MODE = "accept";
     mocks.enqueue.mockReset().mockResolvedValue(undefined);
   });
 
@@ -181,6 +184,7 @@ describe("SlideQuestionGuidesService auto batch", () => {
 
   it("rejects manual and automatic guide admission while draining", async () => {
     mocks.config.ASYNC_JOB_ADMISSION_MODE = "drain";
+    process.env.ASYNC_JOB_ADMISSION_MODE = "drain";
     const harness = createHarness();
 
     await expect(harness.service.create("project-1", "user-1", {})).rejects.toMatchObject({

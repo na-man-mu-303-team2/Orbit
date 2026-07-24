@@ -1,4 +1,3 @@
-import { loadOrbitConfig } from "@orbit/config";
 import { HttpException, HttpStatus } from "@nestjs/common";
 
 export const asyncJobAdmissionDrainingError = {
@@ -7,10 +6,7 @@ export const asyncJobAdmissionDrainingError = {
 } as const;
 
 export function isAsyncJobAdmissionDraining() {
-  return (
-    loadOrbitConfig(process.env, { service: "api" }).ASYNC_JOB_ADMISSION_MODE ===
-    "drain"
-  );
+  return process.env.ASYNC_JOB_ADMISSION_MODE === "drain";
 }
 
 export function assertAsyncJobAdmissionOpen() {
