@@ -1,0 +1,16 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@orbit/web", "dev"],
+      "env": {
+        "APP_ENV": "local",
+        "API_BASE_URL": "http://localhost:3000",
+        "WEB_PORT": "5199"
+      },
+      "port": 5199
+    }
+  ]
+}

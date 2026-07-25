@@ -17,6 +17,7 @@ from app.ai.pptx_design_importer import (
     ImportedDesignAsset,
     ImportedDesignBlueprint,
     PptxDesignImportResult,
+    SVG_BLIP_EXT_URI,
     apply_repeated_text_roles,
     attach_pptx_speaker_notes,
     assign_text_roles,
@@ -26,6 +27,7 @@ from app.ai.pptx_design_importer import (
     imported_slide_style,
     imported_theme,
     import_pptx_design,
+    is_svg_mime_type,
     preset_custom_shape_path,
 )
 from app.ai.pptx_motion import (
@@ -65,12 +67,40 @@ DEFAULT_TEXT_BODY_HORIZONTAL_INSET_EMU = 91440
 DEFAULT_TEXT_BODY_VERTICAL_INSET_EMU = 45720
 DEFAULT_PPTX_FONT_FAMILY = "Aptos, Calibri, Arial, sans-serif"
 PPTX_FONT_BROWSER_FALLBACK = "PPTX_FONT_BROWSER_FALLBACK"
+# Families whose PPTX typeface names map onto a font the browser actually has.
+# Legacy Korean system faces (Malgun Gothic, Gulim, ...) are not web-loadable, so
+# they resolve to Pretendard rather than falling through to Arial, which cannot
+# render Hangul and drifts the layout it was measured against.
 PPTX_FONT_FAMILY_ALIASES = {
-    "pretendard": ("Pretendard", None),
-    "pretendard extralight": ("Pretendard", 200),
-    "pretendard medium": ("Pretendard", 500),
-    "pretendard semibold": ("Pretendard", 600),
-    "pretendard extrabold": ("Pretendard", 800),
+    "pretendard": "Pretendard",
+    "pretendard jp": "Pretendard",
+    "pretendard std": "Pretendard",
+    "맑은 고딕": "Pretendard",
+    "malgun gothic": "Pretendard",
+    "굴림": "Pretendard",
+    "gulim": "Pretendard",
+    "돋움": "Pretendard",
+    "dotum": "Pretendard",
+}
+# Weight words PowerPoint appends to a family name ("Pretendard Light"). Applied
+# only when the remainder is a known family, so faces that merely end in one of
+# these words ("Black Ops One") keep their name intact.
+PPTX_FONT_WEIGHT_SUFFIXES = {
+    "thin": 100,
+    "hairline": 100,
+    "extralight": 200,
+    "ultralight": 200,
+    "light": 300,
+    "regular": 400,
+    "normal": 400,
+    "medium": 500,
+    "semibold": 600,
+    "demibold": 600,
+    "bold": 700,
+    "extrabold": 800,
+    "ultrabold": 800,
+    "black": 900,
+    "heavy": 900,
 }
 PPTX_BROWSER_AVAILABLE_FONT_FAMILIES = frozenset(
     {"Pretendard", "Arial", "sans-serif", "serif", "monospace"}
@@ -392,6 +422,7 @@ def import_pptx_ooxml_visual_tree(
                 slot_sources,
                 slide_index=slide_index,
                 slide_count=len(slide_parts),
+                font_size_scale=canvas_px_to_font_point_scale(scale),
             )
             background = slide_background_color(slide, state.theme_colors) or "#FFFFFF"
             slide_payload: dict[str, Any] = {
@@ -412,7 +443,11 @@ def import_pptx_ooxml_visual_tree(
             slides.append(slide_payload)
             slot_sources_by_slide.append(slot_sources)
 
-        apply_repeated_text_roles(slides, slot_sources_by_slide)
+        apply_repeated_text_roles(
+            slides,
+            slot_sources_by_slide,
+            font_size_scale=canvas_px_to_font_point_scale(scale),
+        )
         blueprint = ImportedDesignBlueprint.model_validate(
             {
                 "sourceFileId": file_id,
@@ -537,6 +572,12 @@ def animation_shape_targets(
         str(element.get("elementId", "")): index
         for index, element in enumerate(elements)
     }
+    # Synthetic groups are appended after every shape on the slide, so stack
+    # them above the existing range and keep each one distinct.
+    next_group_z = max(
+        (int(element.get("zIndex", 0)) for element in elements),
+        default=0,
+    )
     targets: dict[str, str] = {}
     for shape_id in sorted(referenced_shape_ids):
         child_ids = sorted(
@@ -566,16 +607,14 @@ def animation_shape_targets(
         if frame is None:
             continue
         group_id = element_id(slide_index, "slide", shape_id, "animation_group")
+        next_group_z += 1
         elements.append(
             {
                 **element_base(
                     element_id=group_id,
                     role="decoration",
                     frame=frame,
-                    z_index=max(
-                        (int(element.get("zIndex", 0)) for element in child_elements),
-                        default=0,
-                    ),
+                    z_index=next_group_z,
                     locked=False,
                 ),
                 "type": "group",
@@ -1300,7 +1339,6 @@ def append_group_shape(
     placeholder_frames: dict[tuple[str, str], dict[str, int]],
     locked: bool,
 ) -> list[str]:
-    appended_start = len(elements)
     group_transform = transform.for_group(group)
 
     rels = relationships_for_part(package, part_path)
@@ -1357,11 +1395,6 @@ def append_group_shape(
     if frame is None or not child_element_ids:
         return []
 
-    child_z_indices = [
-        int(element.get("zIndex", 0))
-        for element in elements[appended_start:]
-        if str(element.get("elementId", "")) in child_element_ids
-    ]
     group_id = shape_identifier(group, child_index)
     group_element_id = element_id(slide_index, source_name, group_id, "group")
     elements.append(
@@ -1370,7 +1403,9 @@ def append_group_shape(
                 element_id=group_element_id,
                 role="decoration",
                 frame=frame,
-                z_index=max(child_z_indices, default=0),
+                # Drawn from the shared cursor, so the container sits above its
+                # own members without colliding with a later sibling's zIndex.
+                z_index=state.next_z(),
                 locked=locked,
             ),
             "type": "group",
@@ -1776,7 +1811,7 @@ def image_element(
     state: OoxmlImportState,
 ) -> dict[str, Any] | None:
     blip = first_local_descendant(shape, "blip")
-    relationship_id = attr_by_local_name(blip, "embed")
+    relationship_id = blip_relationship_id(blip)
     if not relationship_id:
         state.warnings.append(
             f"OOXML image has no relationship on slide {slide_index}: {shape_id}"
@@ -1840,7 +1875,7 @@ def shape_picture_fill_element(
     sp_pr = first_local_child(shape, "spPr")
     if first_local_child(sp_pr, "blipFill") is None:
         return None
-    relationship_id = attr_by_local_name(first_local_descendant(shape, "blip"), "embed")
+    relationship_id = blip_relationship_id(first_local_descendant(shape, "blip"))
     if not relationship_id:
         return None
     asset = image_asset_from_relationship(
@@ -2578,6 +2613,16 @@ def font_size_to_canvas_px(size_pt: float, scale: OoxmlScale) -> int:
     return max(8, round(size_pt * 12700 * scale.average_scale))
 
 
+def canvas_px_to_font_point_scale(scale: OoxmlScale) -> float:
+    """Inverse of :func:`font_size_to_canvas_px`, as a multiplier.
+
+    Text elements carry canvas units, but the shared role heuristics compare
+    against point thresholds, so they need the conversion factor (0.5 for the
+    usual 1920-wide canvas over a 13.33in slide).
+    """
+    return 1 / max(1e-9, 12700 * scale.average_scale)
+
+
 def text_point_value_to_canvas_px(value: int, scale: OoxmlScale) -> float:
     return round(value / 100 * 12700 * scale.average_scale, 3)
 
@@ -2605,7 +2650,20 @@ def resolve_theme_typeface(typeface: str, theme_fonts: OoxmlThemeFonts) -> str:
 def normalize_pptx_font_family(typeface: str) -> tuple[str, int | None]:
     original = typeface.strip()
     alias = PPTX_FONT_FAMILY_ALIASES.get(original.casefold())
-    return alias if alias is not None else (original, None)
+    if alias is not None:
+        return alias, None
+
+    words = original.split()
+    for split_at in range(len(words) - 1, 0, -1):
+        weight = PPTX_FONT_WEIGHT_SUFFIXES.get(
+            "".join(words[split_at:]).casefold()
+        )
+        if weight is None:
+            continue
+        base = PPTX_FONT_FAMILY_ALIASES.get(" ".join(words[:split_at]).casefold())
+        if base is not None:
+            return base, weight
+    return original, None
 
 
 def append_font_availability_diagnostics(
@@ -3394,7 +3452,7 @@ def shape_source(
     }
     if ph_key is not None and ph_key[0]:
         source["placeholderType"] = ph_key[0]
-    relationship_id = attr_by_local_name(first_local_descendant(shape, "blip"), "embed")
+    relationship_id = blip_relationship_id(first_local_descendant(shape, "blip"))
     if relationship_id:
         source["relationshipId"] = relationship_id
     return source
@@ -3779,8 +3837,28 @@ def extension_for_mime_type(mime_type: str) -> str:
     return subtype if subtype in {"png", "jpg", "gif", "webp"} else "png"
 
 
-def is_svg_mime_type(mime_type: str) -> bool:
-    return mime_type.lower() in {"image/svg+xml", "image/svg"}
+def blip_relationship_id(blip: ET.Element[Any] | None) -> str | None:
+    """Resolve the image relationship id carried by an ``a:blip``.
+
+    PowerPoint normally writes ``a:blip/@r:embed`` pointing at a raster part and
+    keeps the vector original in an ``asvg:svgBlip`` extension. When a picture is
+    SVG-only it omits ``@r:embed`` entirely and the extension is the sole
+    reference, so fall back to it instead of dropping the shape.
+    """
+    embed = attr_by_local_name(blip, "embed")
+    if embed:
+        return embed
+    extension_list = first_local_child(blip, "extLst")
+    if extension_list is None:
+        return None
+    for extension in extension_list:
+        if str(extension.get("uri", "")).upper() != SVG_BLIP_EXT_URI:
+            continue
+        svg_blip = first_local_child(extension, "svgBlip")
+        svg_embed = attr_by_local_name(svg_blip, "embed")
+        if svg_embed:
+            return svg_embed
+    return None
 
 
 def is_full_canvas_frame(frame: dict[str, int], scale: OoxmlScale) -> bool:

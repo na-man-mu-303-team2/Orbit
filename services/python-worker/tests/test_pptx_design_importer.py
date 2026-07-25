@@ -26,6 +26,7 @@ from app.ai.pptx_ooxml_vector_importer import (
     VECTOR_IMPORT_FLAG,
     import_pptx_design_with_optional_ooxml_vector,
     import_pptx_ooxml_visual_tree,
+    normalize_pptx_font_family,
 )
 
 
@@ -1608,6 +1609,83 @@ def test_ooxml_visual_tree_importer_preserves_svg_as_editable_media(
     assert svg_slot["source"]["relationshipId"].startswith("rId")
 
 
+def svg_only_picture_deck(tmp_path: Path, name: str) -> Path:
+    pptx_path = tmp_path / name
+    image_path = tmp_path / f"{pptx_path.stem}-placeholder.png"
+    Image.new("RGB", (32, 32), "#2563EB").save(image_path)
+    presentation = Presentation()
+    presentation.slide_width = Inches(13.333333)
+    presentation.slide_height = Inches(7.5)
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    slide.shapes.add_picture(
+        str(image_path),
+        Inches(1),
+        Inches(1),
+        Inches(2),
+        Inches(2),
+    )
+    presentation.save(pptx_path)
+    replace_first_picture_with_svg(pptx_path)
+    strip_raster_blip_embed(pptx_path)
+    return pptx_path
+
+
+def test_ooxml_visual_tree_importer_reads_svg_only_blip(tmp_path: Path) -> None:
+    pptx_path = svg_only_picture_deck(tmp_path, "svg-only.pptx")
+
+    result = import_pptx_ooxml_visual_tree(pptx_path, "file_design")
+
+    elements = result.blueprint["slides"][0]["elements"]
+    svg = next(element for element in elements if element["type"] == "svg")
+    assert svg["props"]["src"] == "asset:image_1"
+    assert result.assets[0].mime_type == "image/svg+xml"
+    assert result.assets[0].file_name == "image_1.svg"
+    assert not any("has no relationship" in warning for warning in result.warnings)
+
+
+def test_import_pptx_design_reads_svg_only_blip(tmp_path: Path) -> None:
+    pptx_path = svg_only_picture_deck(tmp_path, "svg-only-fallback.pptx")
+
+    result = import_pptx_design(pptx_path, "file_design")
+
+    elements = result.blueprint["slides"][0]["elements"]
+    svg = next(element for element in elements if element["type"] == "svg")
+    assert svg["props"]["src"] == "asset:image_1"
+    assert result.assets[0].mime_type == "image/svg+xml"
+
+
+def test_normalize_pptx_font_family_splits_weight_suffixes() -> None:
+    assert normalize_pptx_font_family("Pretendard Light") == ("Pretendard", 300)
+    assert normalize_pptx_font_family("Pretendard Black") == ("Pretendard", 900)
+    assert normalize_pptx_font_family("Pretendard Semi Bold") == ("Pretendard", 600)
+    assert normalize_pptx_font_family("맑은 고딕") == ("Pretendard", None)
+
+
+def test_normalize_pptx_font_family_keeps_unknown_families_intact() -> None:
+    assert normalize_pptx_font_family("Black Ops One") == ("Black Ops One", None)
+    assert normalize_pptx_font_family("Arial Black") == ("Arial Black", None)
+
+
+def test_assign_text_roles_scales_font_thresholds_to_points() -> None:
+    # Canvas units are twice the point size on a 1920-wide canvas, so a 14pt
+    # label arrives as 28 and must not be mistaken for a 28pt card title.
+    def label_elements() -> list[dict[str, object]]:
+        return [
+            text_element("body", "Deck title", 100, 100, 96),
+            text_element("body", "Before", 220, 392, 28),
+        ]
+
+    scaled = label_elements()
+    assign_text_roles(scaled, {}, slide_index=2, slide_count=8, font_size_scale=0.5)
+
+    unscaled = label_elements()
+    assign_text_roles(unscaled, {}, slide_index=2, slide_count=8)
+
+    assert scaled[0]["role"] == "title"
+    assert scaled[1]["role"] == "caption"
+    assert unscaled[1]["role"] == "title"
+
+
 def test_quality_report_counts_supported_deck_elements_as_editable() -> None:
     report = build_quality_report(
         [
@@ -2042,6 +2120,51 @@ def replace_first_picture_with_svg(pptx_path: Path) -> None:
     )
 
     rewritten_path = pptx_path.with_suffix(".rewritten.pptx")
+    with zipfile.ZipFile(rewritten_path, "w", zipfile.ZIP_DEFLATED) as package:
+        for filename, content in entries.items():
+            package.writestr(filename, content)
+    rewritten_path.replace(pptx_path)
+
+
+def strip_raster_blip_embed(pptx_path: Path) -> None:
+    """Turn slide 1's picture into an SVG-only blip.
+
+    PowerPoint drops ``a:blip/@r:embed`` when a picture has no raster fallback
+    and references the image solely through the ``asvg:svgBlip`` extension.
+    """
+    with zipfile.ZipFile(pptx_path, "r") as package:
+        entries = {
+            info.filename: package.read(info.filename)
+            for info in package.infolist()
+        }
+
+    slide_path = "ppt/slides/slide1.xml"
+    slide_root = ET.fromstring(entries[slide_path])
+    blip = next(
+        element
+        for element in slide_root.iter()
+        if str(element.tag).endswith("}blip")
+    )
+    embed_key = next(key for key in blip.attrib if key.endswith("}embed"))
+    relationship_id = blip.attrib.pop(embed_key)
+    extension_list = ET.SubElement(blip, f"{{{DRAWING_NS}}}extLst")
+    extension = ET.SubElement(
+        extension_list,
+        f"{{{DRAWING_NS}}}ext",
+        uri="{96DAC541-7B7A-43D3-8B79-37D633B846F1}",
+    )
+    svg_blip = ET.SubElement(
+        extension,
+        "{http://schemas.microsoft.com/office/drawing/2016/SVG/main}svgBlip",
+    )
+    svg_blip.set(embed_key, relationship_id)
+    entries[slide_path] = ET.tostring(
+        slide_root,
+        encoding="utf-8",
+        xml_declaration=True,
+    )
+
+    rewritten_path = pptx_path.with_suffix(".svg-only.pptx")
     with zipfile.ZipFile(rewritten_path, "w", zipfile.ZIP_DEFLATED) as package:
         for filename, content in entries.items():
             package.writestr(filename, content)

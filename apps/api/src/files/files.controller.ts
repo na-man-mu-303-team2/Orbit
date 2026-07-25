@@ -20,6 +20,7 @@ import {
 import type { Request, Response } from "express";
 import { authSessionCookieName } from "../auth/auth.constants";
 import { AuthService } from "../auth/auth.service";
+import { applyAssetContentSecurityHeaders } from "../common/asset-content-headers";
 import { normalizeHttpOrigin } from "../common/web-origin";
 import { parseRequest } from "../common/zod-request";
 import { ProjectsService } from "../projects/projects.service";
@@ -101,6 +102,7 @@ export class FilesController {
 
     response.setHeader("content-type", asset.contentType);
     response.setHeader("content-length", String(asset.contentLength));
+    applyAssetContentSecurityHeaders(response, asset.contentType);
     return new StreamableFile(asset.body);
   }
 

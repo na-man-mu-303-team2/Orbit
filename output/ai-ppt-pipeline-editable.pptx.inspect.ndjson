@@ -1,0 +1,122 @@
+{"kind":"deck","id":"pr/lonru8","name":"Deck"}
+{"kind":"layout","layoutId":"a9a59e00-79ff-491e-bde2-f87956200664","name":"Master","type":"master"}
+{"kind":"layout","layoutId":"40a9e40e-9eda-4248-8e29-a6d0a526cca4","name":"Title Slide","type":"title"}
+{"kind":"slide","id":"sl/ti8aod","slide":1,"title":"06","textShapes":50}
+{"kind":"textbox","id":"sh/netk3at8","slide":1,"name":"section-number","text":"06","textPreview":"06","textChars":2,"textLines":1,"bbox":[45,19,58,32]}
+{"kind":"shape","id":"sh/of2lcfat","slide":1,"name":"header-divider","bbox":[88,28,2,20]}
+{"kind":"textbox","id":"sh/9gb25kbe","slide":1,"name":"section-label","text":"TECHNICAL CHALLENGE","textPreview":"TECHNICAL CHALLENGE","textChars":19,"textLines":1,"bbox":[101,17,300,35]}
+{"kind":"textbox","id":"sh/a1k3epsz","slide":1,"name":"slide-title","text":"AI PPT 생성 파이프라인의 상태 정합성","textPreview":"AI PPT 생성 파이프라인의 상태 정합성","textChars":23,"textLines":1,"bbox":[44,58,920,67]}
+{"kind":"textbox","id":"sh/b2tk7atk","slide":1,"name":"slide-subtitle","text":"분리된 큐 시스템에서 단일 DB 기반 실행 모델로","textPreview":"분리된 큐 시스템에서 단일 DB 기반 실행 모델로","textChars":27,"textLines":1,"bbox":[45,129,750,40]}
+{"kind":"textbox","id":"sh/w32lgfa5","slide":1,"name":"left-heading","text":"왜 문제가 생겼나?","textPreview":"왜 문제가 생겼나?","textChars":10,"textLines":1,"bbox":[79,194,645,48]}
+{"kind":"shape","id":"sh/x4v29kbq","slide":1,"name":"left-heading-rule","bbox":[74,248,670,3]}
+{"kind":"textbox","id":"sh/y543ipsv","slide":1,"name":"right-heading","text":"어떻게 해결했나?","textPreview":"어떻게 해결했나?","textChars":9,"textLines":1,"bbox":[855,194,620,48]}
+{"kind":"shape","id":"sh/j6dkbutg","slide":1,"name":"right-heading-rule","bbox":[844,248,610,3]}
+{"kind":"shape","id":"sh/je1onexc","slide":1,"name":"center-divider-top","bbox":[797,192,2,230]}
+{"kind":"shape","id":"sh/ids7u9wr","slide":1,"name":"center-divider-bottom","bbox":[797,499,2,218]}
+{"kind":"shape","id":"sh/50j6p4fi","slide":1,"name":"map-queued-waiting-start","bbox":[309,390,1,1]}
+{"kind":"shape","id":"sh/4zapwjex","slide":1,"name":"map-queued-waiting-end","bbox":[481,390,1,1]}
+{"kind":"shape","id":"sh/va1ojux0","slide":1,"name":"map-queued-waiting","bbox":[310,390.5,171,0]}
+{"kind":"shape","id":"sh/a98nqpgv","slide":1,"name":"map-running-active-start","bbox":[309,428,1,1]}
+{"kind":"shape","id":"sh/hcj6l4f6","slide":1,"name":"map-running-active-end","bbox":[481,428,1,1]}
+{"kind":"shape","id":"sh/wbapszyl","slide":1,"name":"map-running-active","bbox":[310,428.5,171,0]}
+{"kind":"shape","id":"sh/f6lovyxk","slide":1,"name":"map-running-failed-start","bbox":[309,428,1,1]}
+{"kind":"shape","id":"sh/e5c72twz","slide":1,"name":"map-running-failed-end","bbox":[481,505,1,1]}
+{"kind":"shape","id":"sh/q1gruxg7","slide":1,"name":"map-running-failed","bbox":[310,428.5,171,77]}
+{"kind":"shape","id":"sh/b2psn2hs","slide":1,"name":"map-failed-active-start","bbox":[309,505,1,1]}
+{"kind":"shape","id":"sh/c3y9wnyd","slide":1,"name":"map-failed-active-end","bbox":[481,428,1,1]}
+{"kind":"shape","id":"sh/d47apszi","slide":1,"name":"map-failed-active","bbox":[310,428.5,171,77]}
+{"kind":"shape","id":"sh/ypgryxg3","slide":1,"name":"left-db-card","bbox":[82,276,226,282]}
+{"kind":"textbox","id":"sh/0ry907y9","slide":1,"name":"postgres-left-label","text":"PostgreSQL","textPreview":"PostgreSQL","textChars":10,"textLines":1,"bbox":[165,289,135,30]}
+{"kind":"textbox","id":"sh/lsratczu","slide":1,"name":"postgres-left-subtitle","text":"진행 상태","textPreview":"진행 상태","textChars":5,"textLines":1,"bbox":[152,326,120,31]}
+{"kind":"shape","id":"sh/etwrmd0z","slide":1,"name":"db-state-row-1","bbox":[110,366,158,39]}
+{"kind":"textbox","id":"sh/fu58fihk","slide":1,"name":"db-state-label-1","text":"queued","textPreview":"queued","textChars":6,"textLines":1,"bbox":[111,366,156,39]}
+{"kind":"shape","id":"sh/h0vmh0ne","slide":1,"name":"db-state-row-2","bbox":[110,405,158,39]}
+{"kind":"textbox","id":"sh/wzml8vmt","slide":1,"name":"db-state-label-2","text":"running","textPreview":"running","textChars":7,"textLines":1,"bbox":[111,405,156,39]}
+{"kind":"shape","id":"sh/vyd4fa58","slide":1,"name":"db-state-row-3","bbox":[110,444,158,39]}
+{"kind":"textbox","id":"sh/ux43654n","slide":1,"name":"db-state-label-3","text":"completed","textPreview":"completed","textChars":9,"textLines":1,"bbox":[111,444,156,39]}
+{"kind":"shape","id":"sh/54fmlkna","slide":1,"name":"db-state-row-4","bbox":[110,483,158,39]}
+{"kind":"textbox","id":"sh/43mlcfmp","slide":1,"name":"db-state-label-4","text":"failed","textPreview":"failed","textChars":6,"textLines":1,"bbox":[111,483,156,39]}
+{"kind":"textbox","id":"sh/32d4ja54","slide":1,"name":"db-state-ellipsis","text":"⋮","textPreview":"⋮","textChars":1,"textLines":1,"bbox":[178,519,25,30]}
+{"kind":"shape","id":"sh/i143a54z","slide":1,"name":"left-queue-card","bbox":[482,276,226,282]}
+{"kind":"textbox","id":"sh/k72l0b6l","slide":1,"name":"redis-label","text":"BullMQ + Redis","textPreview":"BullMQ + Redis","textChars":14,"textLines":1,"bbox":[555,289,149,30]}
+{"kind":"textbox","id":"sh/onqp8j69","slide":1,"name":"redis-subtitle","text":"실행 메시지","textPreview":"실행 메시지","textChars":6,"textLines":1,"bbox":[546,326,122,31]}
+{"kind":"shape","id":"sh/poj6ho7u","slide":1,"name":"queue-state-row-1","bbox":[522,366,157,39]}
+{"kind":"textbox","id":"sh/2l876to3","slide":1,"name":"queue-state-label-1","text":"waiting","textPreview":"waiting","textChars":7,"textLines":1,"bbox":[523,366,155,39]}
+{"kind":"shape","id":"sh/nmhofypo","slide":1,"name":"queue-state-row-2","bbox":[522,405,157,39]}
+{"kind":"textbox","id":"sh/0zqp4j6x","slide":1,"name":"queue-state-label-2","text":"active","textPreview":"active","textChars":6,"textLines":1,"bbox":[523,405,155,39]}
+{"kind":"shape","id":"sh/1kz6do7i","slide":1,"name":"queue-state-row-3","bbox":[522,444,157,39]}
+{"kind":"textbox","id":"sh/ex8n29o7","slide":1,"name":"queue-state-label-3","text":"retrying","textPreview":"retrying","textChars":8,"textLines":1,"bbox":[523,444,155,39]}
+{"kind":"shape","id":"sh/fyhobepc","slide":1,"name":"queue-state-row-4","bbox":[522,483,157,39]}
+{"kind":"textbox","id":"sh/sv650z61","slide":1,"name":"queue-state-label-4","text":"failed","textPreview":"failed","textChars":6,"textLines":1,"bbox":[523,483,155,39]}
+{"kind":"textbox","id":"sh/dwz6947m","slide":1,"name":"queue-state-ellipsis","text":"⋮","textPreview":"⋮","textChars":1,"textLines":1,"bbox":[589,519,25,30]}
+{"kind":"shape","id":"sh/vqx8ju98","slide":1,"name":"bullet-divider","bbox":[474,586,2,128]}
+{"kind":"textbox","id":"sh/upo7qpsn","slide":1,"name":"left-bullet-dot-1","text":"•","textPreview":"•","textChars":1,"textLines":1,"bbox":[80,583,18,34]}
+{"kind":"textbox","id":"sh/hsfql4re","slide":1,"name":"left-bullet-1","text":"상태와 실행 신호가 서로 다른 시스템에 저장됨","textPreview":"상태와 실행 신호가 서로 다른 시스템에 저장됨","textChars":25,"textLines":1,"bbox":[106,583,360,34]}
+{"kind":"textbox","id":"sh/gr6pszat","slide":1,"name":"left-bullet-dot-2","text":"•","textPreview":"•","textChars":1,"textLines":1,"bbox":[80,629,18,34]}
+{"kind":"textbox","id":"sh/3ux8ne9k","slide":1,"name":"left-bullet-2","text":"전달 실패·재시도 시 상태 불일치 발생","textPreview":"전달 실패·재시도 시 상태 불일치 발생","textChars":21,"textLines":1,"bbox":[106,629,360,34]}
+{"kind":"textbox","id":"sh/ito7u9sz","slide":1,"name":"left-bullet-dot-3","text":"•","textPreview":"•","textChars":1,"textLines":1,"bbox":[80,675,18,34]}
+{"kind":"textbox","id":"sh/5wzqpora","slide":1,"name":"left-bullet-3","text":"복구 지점과 재실행 범위 판단이 어려움","textPreview":"복구 지점과 재실행 범위 판단이 어려움","textChars":21,"textLines":1,"bbox":[106,675,360,34]}
+{"kind":"shape","id":"sh/4v6pwja5","slide":1,"name":"example-card-1","bbox":[500,584,236,60]}
+{"kind":"textbox","id":"sh/rih8re9g","slide":1,"name":"example-header-1","text":"예시 1","textPreview":"예시 1","textChars":4,"textLines":1,"bbox":[515,589,90,20]}
+{"kind":"textbox","id":"sh/qx87y9sv","slide":1,"name":"example-body-1","text":"DB=queued, message fail","textPreview":"DB=queued, message fail","textChars":23,"textLines":1,"bbox":[515,609,205,28]}
+{"kind":"shape","id":"sh/2dsbqdc3","slide":1,"name":"example-card-2","bbox":[500,653,236,60]}
+{"kind":"textbox","id":"sh/ne1sjito","slide":1,"name":"example-header-2","text":"예시 2","textPreview":"예시 2","textChars":4,"textLines":1,"bbox":[515,658,90,20]}
+{"kind":"textbox","id":"sh/ofatsnu9","slide":1,"name":"example-body-2","text":"Redis=retrying, DB=running","textPreview":"Redis=retrying, DB=running","textChars":26,"textLines":1,"bbox":[515,678,205,28]}
+{"kind":"shape","id":"sh/pg3alsbu","slide":1,"name":"transition-circle","bbox":[767,433,60,60]}
+{"kind":"textbox","id":"sh/epsrmdc7","slide":1,"name":"transition-arrow","text":"→","textPreview":"→","textChars":1,"textLines":1,"bbox":[768,430,58,61]}
+{"kind":"shape","id":"sh/fq1sfits","slide":1,"name":"solution-db-cylinder","bbox":[850,278,278,255]}
+{"kind":"textbox","id":"sh/1cjah8bi","slide":1,"name":"postgres-right-label","text":"PostgreSQL","textPreview":"PostgreSQL","textChars":10,"textLines":1,"bbox":[954,292,153,32]}
+{"kind":"shape","id":"sh/ylcbyxcb","slide":1,"name":"solution-row-1","bbox":[875,345,227,48]}
+{"kind":"shape","id":"sh/zmlsr2tw","slide":1,"name":"solution-row-icon-1-dot-1","bbox":[909,358,4,4]}
+{"kind":"shape","id":"sh/9g7uhwvy","slide":1,"name":"solution-row-icon-1-line-1","bbox":[917,358,18,4]}
+{"kind":"shape","id":"sh/8fydobed","slide":1,"name":"solution-row-icon-1-dot-2","bbox":[909,366,4,4]}
+{"kind":"shape","id":"sh/7e5cf6d8","slide":1,"name":"solution-row-icon-1-line-2","bbox":[917,366,18,4]}
+{"kind":"shape","id":"sh/mdwvm1wn","slide":1,"name":"solution-row-icon-1-dot-3","bbox":[909,374,4,4]}
+{"kind":"shape","id":"sh/lcnudwv2","slide":1,"name":"solution-row-icon-1-line-3","bbox":[917,374,18,4]}
+{"kind":"textbox","id":"sh/kbedkreh","slide":1,"name":"solution-row-label-1","text":"Queue","textPreview":"Queue","textChars":5,"textLines":1,"bbox":[954,349,130,40]}
+{"kind":"shape","id":"sh/za5cbmdw","slide":1,"name":"solution-row-2","bbox":[875,403,227,48]}
+{"kind":"shape","id":"sh/y9wvihwb","slide":1,"name":"checkpoint-bookmark","bbox":[914,415,18,26]}
+{"kind":"textbox","id":"sh/58repgv6","slide":1,"name":"checkpoint-notch","text":"⌄","textPreview":"⌄","textChars":1,"textLines":1,"bbox":[911,426,24,18]}
+{"kind":"textbox","id":"sh/47idwvul","slide":1,"name":"solution-row-label-2","text":"Checkpoint","textPreview":"Checkpoint","textChars":10,"textLines":1,"bbox":[954,407,130,40]}
+{"kind":"shape","id":"sh/0fmp4j25","slide":1,"name":"solution-row-3","bbox":[875,461,227,48]}
+{"kind":"shape","id":"sh/1gvqdojq","slide":1,"name":"solution-row-icon-3-dot-1","bbox":[909,474,4,4]}
+{"kind":"shape","id":"sh/ed4729kz","slide":1,"name":"solution-row-icon-3-line-1","bbox":[917,474,18,4]}
+{"kind":"shape","id":"sh/zedobe1k","slide":1,"name":"solution-row-icon-3-dot-2","bbox":[909,482,4,4]}
+{"kind":"shape","id":"sh/o36p83ih","slide":1,"name":"solution-row-icon-3-line-2","bbox":[917,482,18,4]}
+{"kind":"shape","id":"sh/94fqhojm","slide":1,"name":"solution-row-icon-3-dot-3","bbox":[909,490,4,4]}
+{"kind":"shape","id":"sh/mh476tkb","slide":1,"name":"solution-row-icon-3-line-3","bbox":[917,490,18,4]}
+{"kind":"textbox","id":"sh/n2d8fy1w","slide":1,"name":"solution-row-label-3","text":"Stage State","textPreview":"Stage State","textChars":11,"textLines":1,"bbox":[954,465,130,40]}
+{"kind":"textbox","id":"sh/472pwz2x","slide":1,"name":"skip-caption","text":"하나의 아이템을 가져감","textPreview":"하나의 아이템을 가져감","textChars":12,"textLines":1,"bbox":[1195,327,195,35]}
+{"kind":"shape","id":"sh/p8b654ji","slide":1,"name":"db-to-skip-start","bbox":[1129,394,1,1]}
+{"kind":"shape","id":"sh/721sb2l0","slide":1,"name":"db-to-skip-end","bbox":[1201,394,1,1]}
+{"kind":"shape","id":"sh/618rixkf","slide":1,"name":"db-to-skip","bbox":[1130,394.5,71,0]}
+{"kind":"shape","id":"sh/t4jadc36","slide":1,"name":"skip-locked-box","bbox":[1203,371,176,47]}
+{"kind":"textbox","id":"sh/83atk72l","slide":1,"name":"skip-locked-label","text":"SKIP LOCKED","textPreview":"SKIP LOCKED","textChars":11,"textLines":1,"bbox":[1205,373,172,43]}
+{"kind":"shape","id":"sh/jyhs72l4","slide":1,"name":"skip-to-worker-start","bbox":[1381,394,1,1]}
+{"kind":"shape","id":"sh/yx8rex4j","slide":1,"name":"skip-to-worker-end","bbox":[1420,394,1,1]}
+{"kind":"shape","id":"sh/l0za9s3u","slide":1,"name":"skip-to-worker","bbox":[1382,394.5,38,0]}
+{"kind":"textbox","id":"sh/baxs3ils","slide":1,"name":"worker-label","text":"Worker","textPreview":"Worker","textChars":6,"textLines":1,"bbox":[1410,461,120,30]}
+{"kind":"shape","id":"sh/a9orad47","slide":1,"name":"transaction-banner","bbox":[850,551,580,47]}
+{"kind":"textbox","id":"sh/ve5wjix0","slide":1,"name":"transaction-banner-label","text":"선점 + 상태 변경 + 체크포인트 기록 = 1 트랜잭션","textPreview":"선점 + 상태 변경 + 체크포인트 기록 = 1 트랜잭션","textChars":30,"textLines":1,"bbox":[865,554,550,39]}
+{"kind":"shape","id":"sh/udwvadgf","slide":1,"name":"benefit-consistency-circle","bbox":[850,634,30,30]}
+{"kind":"textbox","id":"sh/hgnelsf6","slide":1,"name":"benefit-consistency-tick","text":"✓","textPreview":"✓","textChars":1,"textLines":1,"bbox":[850,631,30,34]}
+{"kind":"textbox","id":"sh/gfedcnyl","slide":1,"name":"benefit-consistency-label","text":"정합성 있는 실행 상태 유지","textPreview":"정합성 있는 실행 상태 유지","textChars":15,"textLines":1,"bbox":[894,632,260,34]}
+{"kind":"shape","id":"sh/3i5wn2xw","slide":1,"name":"benefit-success-circle","bbox":[1175,634,30,30]}
+{"kind":"textbox","id":"sh/ihwfexgr","slide":1,"name":"benefit-success-tick","text":"✓","textPreview":"✓","textChars":1,"textLines":1,"bbox":[1175,631,30,34]}
+{"kind":"textbox","id":"sh/547epsf2","slide":1,"name":"benefit-success-label","text":"성공 결과는 보존","textPreview":"성공 결과는 보존","textChars":9,"textLines":1,"bbox":[1219,632,200,34]}
+{"kind":"shape","id":"sh/43yxgnyh","slide":1,"name":"benefit-dedupe-circle","bbox":[850,682,30,30]}
+{"kind":"textbox","id":"sh/r6pwr2x8","slide":1,"name":"benefit-dedupe-tick","text":"✓","textPreview":"✓","textChars":1,"textLines":1,"bbox":[850,679,30,34]}
+{"kind":"textbox","id":"sh/q5gfixgn","slide":1,"name":"benefit-dedupe-label","text":"중복 실행과 데드 레터 방지","textPreview":"중복 실행과 데드 레터 방지","textChars":15,"textLines":1,"bbox":[894,680,260,34]}
+{"kind":"shape","id":"sh/obid87ul","slide":1,"name":"benefit-resume-circle","bbox":[1175,682,30,30]}
+{"kind":"textbox","id":"sh/pcrehcv6","slide":1,"name":"benefit-resume-tick","text":"✓","textPreview":"✓","textChars":1,"textLines":1,"bbox":[1175,679,30,34]}
+{"kind":"textbox","id":"sh/29gv6xcv","slide":1,"name":"benefit-resume-label","text":"실패한 Stage부터 재개","textPreview":"실패한 Stage부터 재개","textChars":14,"textLines":1,"bbox":[1219,680,230,34]}
+{"kind":"shape","id":"sh/na9cf2dg","slide":1,"name":"footer-left-rule","bbox":[86,760,690,2]}
+{"kind":"shape","id":"sh/07yd47up","slide":1,"name":"footer-right-rule","bbox":[820,760,690,2]}
+{"kind":"textbox","id":"sh/187udsva","slide":1,"name":"footer-star","text":"✦","textPreview":"✦","textChars":1,"textLines":1,"bbox":[783,746,30,30]}
+{"kind":"textbox","id":"sh/e5gv2xcj","slide":1,"name":"footer-conclusion","text":"결국, 파이프라인의 ‘진실’을 PostgreSQL 하나로 모았습니다.","textPreview":"결국, 파이프라인의 ‘진실’을 PostgreSQL 하나로 모았습니다.","textChars":38,"textLines":1,"bbox":[270,791,1060,65]}
+{"kind":"shape","id":"sh/f6pcb2d4","slide":1,"name":"footer-blue-underline","bbox":[738,852,585,3]}
+{"kind":"image","id":"im/cvy5k3eh","slide":1,"name":"","alt":"PostgreSQL elephant logo","bbox":[104,286,52,52]}
+{"kind":"image","id":"im/ulsba58r","slide":1,"name":"","alt":"Redis stack logo","bbox":[502,286,55,55]}
+{"kind":"image","id":"im/ryp8bm9g","slide":1,"name":"","alt":"PostgreSQL elephant logo","bbox":[902,287,47,47]}
+{"kind":"image","id":"im/32h47yxc","slide":1,"name":"","alt":"Worker person and gear icon","bbox":[1416,339,108,108]}
+{"kind":"notes","id":"nt/ti8aod","slide":1,"text":""}

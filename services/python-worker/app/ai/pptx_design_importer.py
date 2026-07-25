@@ -31,6 +31,10 @@ NOTES_SLIDE_PART_PATTERN = re.compile(
 NOTES_MASTER_PART_PATTERN = re.compile(
     r"ppt/notesMasters/notesMaster[^/]+\.xml"
 )
+# a:blip extension holding the vector original of an SVG picture. PowerPoint
+# omits a:blip/@r:embed entirely when there is no raster fallback, leaving this
+# as the only reference to the image part.
+SVG_BLIP_EXT_URI = "{96DAC541-7B7A-43D3-8B79-37D633B846F1}"
 
 
 class ImportedDesignAsset(BaseModel):
@@ -409,9 +413,16 @@ def append_shape_elements(
 
     if shape_type == MSO_SHAPE_TYPE.PICTURE:
         asset_id = f"image_{len(assets) + 1}"
-        asset = image_asset(shape, asset_id)
+        loaded = image_asset(shape, asset_id)
+        if loaded is None:
+            warnings.append(
+                f"Unreadable PPTX picture on slide {slide_index}: "
+                f"{getattr(shape, 'name', 'picture')}"
+            )
+            return []
+        asset, blob = loaded
         assets.append(asset)
-        color = average_image_color(shape.image.blob)
+        color = average_image_color(blob)
         if color:
             asset_colors[asset_id] = color
         element = {
@@ -422,7 +433,7 @@ def append_shape_elements(
                 z_index=next_z(z_cursor),
                 locked=locked,
             ),
-            "type": "image",
+            "type": "svg" if is_svg_mime_type(asset.mime_type) else "image",
             "props": {
                 "src": f"asset:{asset_id}",
                 "alt": str(getattr(shape, "name", "Imported image")),
@@ -954,6 +965,8 @@ def build_template_blueprint(
 def apply_repeated_text_roles(
     slides: list[dict[str, Any]],
     slot_sources_by_slide: list[dict[str, dict[str, Any]]],
+    *,
+    font_size_scale: float = 1,
 ) -> None:
     repeated_texts = repeated_text_values(slides)
     if not repeated_texts:
@@ -969,6 +982,7 @@ def apply_repeated_text_roles(
             slide_index=index + 1,
             slide_count=slide_count,
             repeated_texts=repeated_texts,
+            font_size_scale=font_size_scale,
         )
 
 
@@ -1817,11 +1831,53 @@ def shape_element(
     }
 
 
-def image_asset(shape: Any, asset_id: str) -> ImportedDesignAsset:
-    image = shape.image
-    extension = str(getattr(image, "ext", "png") or "png")
-    mime_type = str(getattr(image, "content_type", f"image/{extension}"))
-    return image_asset_from_blob(asset_id, image.blob, mime_type)
+def image_asset(shape: Any, asset_id: str) -> tuple[ImportedDesignAsset, bytes] | None:
+    blob_and_mime = picture_blob(shape)
+    if blob_and_mime is None:
+        return None
+    blob, mime_type = blob_and_mime
+    return image_asset_from_blob(asset_id, blob, mime_type), blob
+
+
+def picture_blob(shape: Any) -> tuple[bytes, str] | None:
+    """Bytes and mime type behind a picture shape.
+
+    ``shape.image`` raises for pictures whose ``a:blip`` carries no ``r:embed``
+    — how PowerPoint writes SVG-only images — and again for any part PIL cannot
+    identify, so fall back to reading the ``asvg:svgBlip`` part directly.
+    """
+    try:
+        image = shape.image
+        extension = str(getattr(image, "ext", "png") or "png")
+        mime_type = str(getattr(image, "content_type", f"image/{extension}"))
+        return bytes(image.blob), mime_type
+    except Exception:
+        pass
+
+    relationship_id = svg_blip_relationship_id(shape)
+    if not relationship_id:
+        return None
+    try:
+        part = shape.part.related_part(relationship_id)
+        return bytes(part.blob), str(
+            getattr(part, "content_type", "image/svg+xml")
+        )
+    except Exception:
+        return None
+
+
+def svg_blip_relationship_id(shape: Any) -> str | None:
+    blip = first_descendant(shape._element, "blip")
+    extension_list = first_child(blip, "extLst")
+    if extension_list is None:
+        return None
+    for extension in extension_list:
+        if str(extension.get("uri", "")).upper() != SVG_BLIP_EXT_URI:
+            continue
+        embed = attr_by_local_name(first_child(extension, "svgBlip"), "embed")
+        if embed:
+            return embed
+    return None
 
 
 def image_asset_from_blob(
@@ -1853,6 +1909,10 @@ def blip_fill_asset(
     except Exception:
         return None
     return image_asset_from_blob(asset_id, blob, mime_type), average_image_color(blob)
+
+
+def is_svg_mime_type(mime_type: str) -> bool:
+    return mime_type.lower() in {"image/svg+xml", "image/svg"}
 
 
 def extension_for_mime_type(mime_type: str) -> str:
@@ -2222,6 +2282,7 @@ def assign_text_roles(
     slide_index: int = 1,
     slide_count: int = 1,
     repeated_texts: set[str] | None = None,
+    font_size_scale: float = 1,
 ) -> None:
     text_elements = [element for element in elements if element.get("type") == "text"]
     if not text_elements:
@@ -2232,6 +2293,7 @@ def assign_text_roles(
         slot_sources or {},
         slide_index=slide_index,
         repeated_texts=repeated_texts or set(),
+        font_size_scale=font_size_scale,
     )
     max_font = max((int(summary["font_size"]) for summary in summaries), default=24)
     for summary in summaries:
@@ -2254,6 +2316,7 @@ def text_shape_summaries(
     *,
     slide_index: int,
     repeated_texts: set[str],
+    font_size_scale: float = 1,
 ) -> list[dict[str, Any]]:
     summaries: list[dict[str, Any]] = []
     for element in text_elements:
@@ -2270,7 +2333,9 @@ def text_shape_summaries(
                 "y": number_or_zero(element.get("y")),
                 "width": number_or_zero(element.get("width")),
                 "height": number_or_zero(element.get("height")),
-                "font_size": int(props.get("fontSize") or 24),
+                "font_size": max(
+                    1, round(float(props.get("fontSize") or 24) * font_size_scale)
+                ),
                 "is_repeated_across_slides": normalized_text_key(
                     str(props.get("text", ""))
                 )
@@ -2289,6 +2354,12 @@ def infer_text_semantic_role(
     slide_index: int,
     slide_count: int,
 ) -> str:
+    """Classify a text shape by placeholder, position and size.
+
+    ``summary["font_size"]`` is in points; callers whose elements carry canvas
+    units pass ``font_size_scale`` to ``assign_text_roles`` to convert. The
+    ``x``/``y`` thresholds below are canvas units against a 1920x1080 frame.
+    """
     placeholder = str(summary.get("placeholder_type", "")).lower()
     text = str(summary.get("text", "")).strip()
     y = float(summary.get("y", 0))

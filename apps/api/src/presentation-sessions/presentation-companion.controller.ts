@@ -21,6 +21,7 @@ import type { Request, Response } from "express";
 
 import { authSessionCookieName } from "../auth/auth.constants";
 import { AuthService } from "../auth/auth.service";
+import { applyAssetContentSecurityHeaders } from "../common/asset-content-headers";
 import { ProjectsService } from "../projects/projects.service";
 import {
   companionAccessCookieName,
@@ -219,6 +220,7 @@ export class PublicPresentationCompanionController {
     }
     response.setHeader("content-type", asset.contentType);
     response.setHeader("content-length", String(asset.contentLength));
+    applyAssetContentSecurityHeaders(response, asset.contentType);
     return new StreamableFile(asset.body);
   }
 
