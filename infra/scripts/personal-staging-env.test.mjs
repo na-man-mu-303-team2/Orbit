@@ -1,15 +1,12 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
 import test from "node:test";
 
 import {
   decodeEnvValue,
   parseComposeEnvironmentKeys,
   parseEnvFileContent,
-  selectDopplerChanges,
   validatePersonalStagingPolicy,
 } from "./personal-staging-env.mjs";
-import { parseArguments } from "./sync-personal-staging-doppler.mjs";
 
 test("env parser reports duplicates without exposing values", () => {
   const result = parseEnvFileContent(
@@ -110,115 +107,4 @@ x-orbit-env: &orbit-env
     "QUOTED_INTERPOLATION",
     "SELF_INTERPOLATED",
   ]);
-});
-
-test("sync selection never overwrites existing keys or creates manual values", () => {
-  const policy = {
-    variables: {
-      EXISTING_DEFAULT: {
-        source: "repo-default",
-        delivery: "compose",
-      },
-      NEW_DEFAULT: {
-        source: "repo-default",
-        delivery: "compose",
-      },
-      OPTIONAL_OVERRIDE: {
-        source: "doppler-optional",
-        delivery: "compose",
-      },
-      REQUIRED_SECRET: {
-        source: "doppler-required",
-        delivery: "compose",
-      },
-      CODE_ONLY: {
-        source: "repo-default",
-        delivery: "code-default",
-      },
-    },
-  };
-
-  assert.deepEqual(
-    selectDopplerChanges({
-      policy,
-      dopplerKeys: new Set(["EXISTING_DEFAULT"]),
-    }),
-    {
-      missingAuto: ["NEW_DEFAULT"],
-      missingRequired: ["REQUIRED_SECRET"],
-      missingOptional: ["OPTIONAL_OVERRIDE"],
-    },
-  );
-});
-
-test("sync arguments are dry-run by default and reject unknown input", () => {
-  assert.deepEqual(parseArguments([]), {
-    apply: false,
-    project: "orbit",
-    config: "stg",
-  });
-  assert.deepEqual(parseArguments(["--apply", "--config", "stg_demo"]), {
-    apply: true,
-    project: "orbit",
-    config: "stg_demo",
-  });
-  assert.throws(() => parseArguments(["--unknown"]), /unknown argument/);
-});
-
-test("develop deploy syncs safe Doppler defaults before server deployment", () => {
-  const workflow = fs.readFileSync(
-    ".github/workflows/environment-contract-ci.yml",
-    "utf8",
-  );
-
-  assert.match(workflow, /^  sync-personal-staging-env:$/m);
-  assert.match(
-    workflow,
-    /DOPPLER_TOKEN: \$\{\{ secrets\.DOPPLER_STG_SYNC_TOKEN \}\}/,
-  );
-  assert.match(
-    workflow,
-    /node infra\/scripts\/sync-personal-staging-doppler\.mjs \\\s+--apply/,
-  );
-  assert.doesNotMatch(
-    workflow,
-    /uses: \.\/\.github\/workflows\/deploy-personal-staging\.yml/,
-  );
-  assert.match(
-    workflow,
-    /needs\.sync-personal-staging-env\.result == 'success'/,
-  );
-  assert.match(
-    workflow,
-    /'personal-staging-deploy' \|\| format\('environment-contract-\{0\}-\{1\}', github\.workflow, github\.ref\)/,
-  );
-  assert.match(
-    workflow,
-    /sudo \/usr\/local\/sbin\/orbit-deploy-personal-staging "\$DEPLOYMENT_MODE" "\$EXPECTED_SHA"/,
-  );
-});
-
-test("manual full recovery uses the existing dispatch and serialized develop sync path", () => {
-  const contractWorkflow = fs.readFileSync(
-    ".github/workflows/environment-contract-ci.yml",
-    "utf8",
-  );
-  const deployWorkflow = fs.readFileSync(
-    ".github/workflows/deploy-personal-staging.yml",
-    "utf8",
-  );
-
-  assert.doesNotMatch(contractWorkflow, /^  workflow_dispatch:$/m);
-  assert.doesNotMatch(deployWorkflow, /^  workflow_call:$/m);
-  assert.match(deployWorkflow, /^  workflow_dispatch:$/m);
-  assert.match(deployWorkflow, /^          - manual$/m);
-  assert.match(
-    deployWorkflow,
-    /inputs\.deployment_mode == 'full' &&[\s\S]*inputs\.trigger_source == 'manual' &&[\s\S]*github\.ref == 'refs\/heads\/develop'/,
-  );
-  assert.doesNotMatch(deployWorkflow, /develop-push/);
-  assert.match(
-    deployWorkflow,
-    /^concurrency:\s+group: personal-staging-deploy\s+cancel-in-progress: false$/m,
-  );
 });

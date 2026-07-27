@@ -231,29 +231,3 @@ export function validatePersonalStagingPolicy({
 
   return failures;
 }
-
-export function selectDopplerChanges({ policy, dopplerKeys }) {
-  const missingAuto = [];
-  const missingRequired = [];
-  const missingOptional = [];
-
-  for (const [key, settings] of Object.entries(policy.variables)) {
-    if (settings.delivery !== "compose" || dopplerKeys.has(key)) {
-      continue;
-    }
-
-    if (settings.source === "repo-default") {
-      missingAuto.push(key);
-    } else if (settings.source === "doppler-required") {
-      missingRequired.push(key);
-    } else if (settings.source === "doppler-optional") {
-      missingOptional.push(key);
-    }
-  }
-
-  return {
-    missingAuto: missingAuto.sort(),
-    missingRequired: missingRequired.sort(),
-    missingOptional: missingOptional.sort(),
-  };
-}
