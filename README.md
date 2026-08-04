@@ -13,7 +13,8 @@
     <a href="#제품-둘러보기">제품 둘러보기</a> ·
     <a href="#빠른-시작">빠른 시작</a> ·
     <a href="#아키텍처">아키텍처</a> ·
-    <a href="#개발-가이드">개발 가이드</a>
+    <a href="#개발-가이드">개발 가이드</a> ·
+    <a href="./docs/contributors/kdh949.md">kdh949 기여 사례</a>
   </p>
   <p>
     <a href="https://github.com/na-man-mu-303-team2/Orbit/actions/workflows/typescript-ci.yml">
@@ -230,14 +231,15 @@ GitHub Flow를 사용하며 `main`에 직접 커밋하지 않습니다. 목적�
 
 ## 문서
 
-| 문서                                                    | 내용                              |
-| ------------------------------------------------------- | --------------------------------- |
-| [AGENTS.md](AGENTS.md)                                  | 저장소 최상위 작업 규칙           |
-| [ORBIT Design System](docs/orbit-design-system.md)      | 제품의 시각·상호작용 기준         |
-| [공통 계약](docs/contracts.md)                          | Deck, File, Job, WebSocket schema |
-| [Demo ID 기준](docs/demo-standards.md)                  | 로컬·E2E Demo 식별자              |
-| [로컬 개발 Runbook](docs/runbooks/local-development.md) | 실행, migration, smoke test       |
-| [환경변수 규칙](docs/conventions/environment.md)        | 환경변수 이름과 관리 기준         |
-| [서버 로그 규칙](docs/conventions/logging.md)           | 업무 이벤트와 민감정보 보호       |
-| [AWS 배포 기준](docs/deployment.md)                     | ECS Fargate 기반 운영 목표        |
-| [README 이미지 명세](docs/readme-assets.md)             | Hero와 제품 화면 캡처 기준        |
+| 문서                                                    | 내용                                       |
+| ------------------------------------------------------- | ------------------------------------------ |
+| [AGENTS.md](AGENTS.md)                                  | 저장소 최상위 작업 규칙                    |
+| [ORBIT Design System](docs/orbit-design-system.md)      | 제품의 시각·상호작용 기준                  |
+| [공통 계약](docs/contracts.md)                          | Deck, File, Job, WebSocket schema          |
+| [Demo ID 기준](docs/demo-standards.md)                  | 로컬·E2E Demo 식별자                       |
+| [로컬 개발 Runbook](docs/runbooks/local-development.md) | 실행, migration, smoke test                |
+| [환경변수 규칙](docs/conventions/environment.md)        | 환경변수 이름과 관리 기준                  |
+| [서버 로그 규칙](docs/conventions/logging.md)           | 업무 이벤트와 민감정보 보호                |
+| [AWS 배포 기준](docs/deployment.md)                     | ECS Fargate 기반 운영 목표                 |
+| [README 이미지 명세](docs/readme-assets.md)             | Hero와 제품 화면 캡처 기준                 |
+| [김동현(kdh949) 기여 사례](docs/contributors/kdh949.md)  | Activity Slides와 PPTX Worker OOM 문제 해결 |
